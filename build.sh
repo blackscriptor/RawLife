@@ -15,6 +15,7 @@ gcc -std=c11 -Wall -Wextra -Werror -O2 \
     src/sim/rng.c \
     src/sim/relation.c \
     src/sim/world.c \
+    src/save/save.c \
     -I src \
     -o build/rawlife.exe \
     -luser32 -lgdi32

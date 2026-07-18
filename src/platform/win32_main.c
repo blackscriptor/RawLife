@@ -21,6 +21,7 @@
 #include "sim/relation.h"
 #include "sim/traits.h"
 #include "sim/world.h"
+#include "save/save.h"
 
 static LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     switch (msg) {
@@ -173,6 +174,36 @@ static void sim_smoke_test(void) {
                        status_name(edge->status));
             }
         }
+    }
+
+    /* Save/load round trip: write world to disk, load it into a completely
+     * separate WorldState (its own arena, its own pools), and confirm the
+     * loaded copy matches -- proves the save format actually round-trips
+     * rather than just not crashing. */
+    const char* save_path = "rawlife_smoketest.sav";
+    if (!world_save(world, save_path)) {
+        printf("RawLife: world_save failed\n");
+    } else {
+        printf("RawLife: saved to %s\n", save_path);
+
+        Arena load_arena = arena_create(4 * 1024 * 1024);
+        WorldState* loaded = (load_arena.base != NULL) ? world_create(&load_arena, 0) : NULL;
+
+        if (loaded == NULL || !world_load(loaded, save_path)) {
+            printf("RawLife: world_load failed\n");
+        } else {
+            printf("RawLife: -- loaded copy, year %u (expected %u) --\n", loaded->year, world->year);
+            print_person(loaded, dave);
+            print_person(loaded, frank);
+
+            bool match = (loaded->year == world->year) &&
+                         (loaded->people->hot.age[dave] == world->people->hot.age[dave]) &&
+                         (loaded->people->warm.loyalty[frank] == world->people->warm.loyalty[frank]) &&
+                         (loaded->relations->edge_count[dave] == world->relations->edge_count[dave]);
+            printf("RawLife: save/load round trip %s\n", match ? "OK" : "MISMATCH");
+        }
+
+        arena_destroy(&load_arena);
     }
 
     fflush(stdout);
