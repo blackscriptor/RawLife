@@ -13,6 +13,8 @@
 
 #include "sim/arena.h"
 #include "sim/person.h"
+#include "sim/event.h"
+#include "sim/traits.h"
 
 static LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     switch (msg) {
@@ -59,6 +61,37 @@ static void sim_smoke_test(void) {
     uint32_t carol = person_spawn(pool, "Carol", SEX_FEMALE, 2001);
     wsprintfA(buf, "RawLife: spawned %s -- recycled id=%lu (expected %lu), free_count=%lu\n",
               pool->cold.name[carol], carol, alice, pool->free_count);
+    OutputDebugStringA(buf);
+
+    /* Event eligibility smoke test: prove age-gating and trait-gating
+     * both flow through event_eligible() as the single choke point. */
+    uint32_t dave = person_spawn(pool, "Dave", SEX_MALE, 2010);
+    pool->hot.age[dave] = 16; /* still a minor */
+    pool->hot.trait_flags[dave] |= TRAIT_FLAG_MARRIED; /* contrived, just for the test */
+
+    for (uint32_t i = 0; i < g_example_event_count; i++) {
+        const EventDef* e = &g_example_events[i];
+        bool eligible = event_eligible(e, pool->hot.age[dave], pool->hot.trait_flags[dave]);
+        wsprintfA(buf, "RawLife: [age %u] event '%s' eligible=%d\n",
+                  pool->hot.age[dave], e->name, eligible);
+        OutputDebugStringA(buf);
+    }
+
+    pool->hot.age[dave] = 25; /* now an adult */
+    OutputDebugStringA("RawLife: -- Dave turns 25 --\n");
+    for (uint32_t i = 0; i < g_example_event_count; i++) {
+        const EventDef* e = &g_example_events[i];
+        bool eligible = event_eligible(e, pool->hot.age[dave], pool->hot.trait_flags[dave]);
+        wsprintfA(buf, "RawLife: [age %u] event '%s' eligible=%d\n",
+                  pool->hot.age[dave], e->name, eligible);
+        OutputDebugStringA(buf);
+    }
+
+    pool->hot.trait_flags[dave] |= TRAIT_FLAG_LOYAL; /* now loyal */
+    OutputDebugStringA("RawLife: -- Dave becomes loyal --\n");
+    const EventDef* cheat = &g_example_events[3]; /* "Cheated on partner" */
+    wsprintfA(buf, "RawLife: event '%s' eligible=%d (expected 0 -- loyal excludes it)\n",
+              cheat->name, event_eligible(cheat, pool->hot.age[dave], pool->hot.trait_flags[dave]));
     OutputDebugStringA(buf);
 
     arena_destroy(&arena);
