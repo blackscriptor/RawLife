@@ -6,13 +6,15 @@
 #include "sim/arena.h"
 #include "sim/event.h"
 #include "sim/person.h"
+#include "sim/relation.h"
 #include "sim/rng.h"
 
 typedef struct {
-    PersonPool* people;
-    Arena       frame_arena; /* scratch memory, rebuilt every tick, reset at tick end */
-    Rng         rng;
-    uint32_t    year;
+    PersonPool*   people;
+    RelationPool* relations;
+    Arena         frame_arena; /* scratch memory, rebuilt every tick, reset at tick end */
+    Rng           rng;
+    uint32_t      year;
 } WorldState;
 
 /*

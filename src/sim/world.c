@@ -13,6 +13,11 @@ WorldState* world_create(Arena* arena, uint64_t seed) {
         return NULL;
     }
 
+    world->relations = relation_pool_create(arena);
+    if (world->relations == NULL) {
+        return NULL;
+    }
+
     void* scratch = arena_alloc(arena, TICK_SCRATCH_SIZE, 16);
     if (scratch == NULL) {
         return NULL;

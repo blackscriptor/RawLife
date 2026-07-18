@@ -13,6 +13,7 @@ gcc -std=c11 -Wall -Wextra -Werror -O2 \
     src/sim/person.c \
     src/sim/event.c \
     src/sim/rng.c \
+    src/sim/relation.c \
     src/sim/world.c \
     -I src \
     -o build/rawlife.exe \

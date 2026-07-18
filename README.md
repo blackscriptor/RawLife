@@ -25,9 +25,11 @@ over the simulation state instead of per-entity dispatch. See
 ## Status
 
 Early scaffold. Currently: a native Win32 window, the fixed-arena
-allocator, the Person pool, the trait/event schema, and a working yearly
-simulation tick loop (age-up + weighted event resolution) driven by
-WorldState. No relationships, rendering, or real content yet.
+allocator, the Person pool, the trait/event schema, a working yearly
+simulation tick loop, and a relationship graph (parent/child, spouse,
+friend, rival, affair edges between NPCs, O(1) lookup from either side).
+Events don't yet reference relationships during resolution -- that's next.
+No rendering or real content yet.
 
 ## Building
 
@@ -66,7 +68,7 @@ docs/
 - [x] Person pool (struct-of-arrays, hot/cold split, free-list recycling)
 - [x] Trait table + event schema
 - [x] Simulation tick loop (age up, weighted event resolution)
-- [ ] Relationship graph (family/social edges between NPCs)
+- [x] Relationship graph (family/social edges between NPCs)
 - [ ] Event compiler tool (DSL -> events.bin, replaces hardcoded g_example_events)
 - [ ] Save/load
 - [ ] Direct2D rendering + basic UI
