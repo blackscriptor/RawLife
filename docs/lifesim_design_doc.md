@@ -291,3 +291,53 @@ Keeping `/sim` free of any rendering or platform calls means the simulation can 
 - UI wireframe / screen flow (life stages, stat screens, relationship views).
 - Birth/family-tree mechanics in detail (how partner selection and inheritance of traits works).
 - Whether to support user-authored/moddable event packs (the binary-compiled format makes this possible later, but needs a defined external format if so).
+
+---
+
+## 13. Extensibility: Content Variety (Kinks, Femdom Dynamics, Group Content, etc.)
+
+No engine changes are needed for this — the mechanism already exists and has been exercised end to end (see the "Cheated on partner" and "Hooked up with a friend" example events). Any new category of mature or dark content is just:
+
+1. **New trait/kink flag bits.** `PersonWarm.kink_mask` already exists as a generic bitmask against a to-be-defined kink ID table (analogous to `TRAIT_FLAG_*` in `traits.h`, just a second bitmask dedicated to kink/preference data instead of status flags). A "dominant," "submissive," "exhibitionist," "group," or any other category is one more bit.
+2. **New `EventDef` entries** that gate on those bits via `required_trait_mask`/`forbidden_trait_mask` (and the equivalent partner-side fields for multi-person events). A "husband encourages a group encounter" event, mechanically, is: `required_trait_mask` includes `TRAIT_FLAG_MARRIED` and a "dominant/encouraging" kink bit on the initiator, `partner_source = PARTNER_SOURCE_EXISTING_RELATION` with `partner_required_status = REL_STATUS_SPOUSE`, `min_age = 18` everywhere it matters. A femdom-dynamic event (heel-licking, roleplay, whatever) is the same shape: gate on a submissive/dominant kink pairing between two people with an existing relationship status, apply trait/relationship deltas.
+3. **Group participants, if ever needed.** Right now `requires_partner` supports exactly one second participant. If three-or-more-person events are wanted later, the natural extension is a `partner_count` field and turning the single `partner_*` block into a small fixed array (e.g. up to 3 partner slots) searched the same way — a moderate but contained change to `EventDef`, `find_event_partner`, and `pass_resolve_events`, not a redesign.
+
+Age-gating is automatic for all of this: every event's `min_age` (and `partner_min_age` for the second participant) flows through the same `event_eligible`/`candidate_matches` choke point already in place. Nothing here requires bypassing or duplicating that check.
+
+**What doesn't exist yet and would need building when this content gets authored:** the actual kink ID table/enum (currently `kink_mask` is reserved but empty), and — if you want femdom/dominant-submissive *dynamics* to be a stable property of a relationship rather than a one-off event outcome — a small additional field on `RelationEdge` (e.g. a `power_dynamic` byte) rather than encoding it purely as a personal trait. Worth deciding once real content gets written and it's clear whether "who's dominant" is a per-person trait, a per-relationship state, or both.
+
+---
+
+## 14. Extensibility: Jobs, Hobbies, Assets, Money, Stocks
+
+Not yet implemented. Proposed shape, following the same data-driven pattern as events:
+
+- **`JobDef`** (data table, like `EventDef`): title, required education/skill thresholds, salary range, promotion eligibility. A person's current job is a small addition to `PersonCold` (job_id, years_at_job) — cold because it changes rarely, not every tick.
+- **Money**: a signed 64-bit fixed-point field (cents, not floating point — avoids rounding drift over a full simulated lifetime) added to `PersonCold`. `int64_t` per person is cheap even at `MAX_PEOPLE` scale.
+- **`AssetPool`**: structurally identical to `RelationPool` — fixed slots per person (houses, cars, valuables), each asset referencing an `AssetDef` (data table: category, base value, upkeep cost) plus a current condition/value. Assets a person owns are just edges into this pool, the same pattern already proven for relationships.
+- **Stocks**: a separate small system — a fixed array of `StockDef` (ticker, volatility parameters) with a price history buffer, ticked alongside `world_tick_year` (or more frequently, if a finer time resolution than "yearly" is ever wanted for markets specifically). A person's holdings are `(stock_id, share_count)` pairs, same fixed-slot-per-person shape as assets and relationships.
+- **Hobbies**: likely just another `EventDef`-eligible category (hobby-related events gated on age/traits, with a `current_hobby` flag or two in `trait_flags`) rather than a whole new subsystem, unless hobbies need their own progression/leveling — in which case they fold into the skills system below.
+
+None of this requires touching the core arena/pool/event/tick-loop architecture — it's new pools and new data tables following the exact patterns `PersonPool`, `RelationPool`, and `EventDef` already established.
+
+---
+
+## 15. Extensibility: Skills
+
+Not yet implemented. Traits (`PersonWarm`) and skills are conceptually the same kind of data (0–255 scalars per person), so the honest answer is: skills are traits, mechanically. The distinction is really about eligibility, not storage:
+
+- Add a `PersonSkills` block (same struct-of-arrays pattern as `PersonWarm`) for `strength`, `agility`, `intelligence`, `sex_appeal`, specific skills like instruments or martial arts, etc.
+- `EventDef`'s current eligibility model (`required_trait_mask`/`forbidden_trait_mask`) is bitmask-based, which suits boolean flags but not "requires charisma > 150." Skills need a small **threshold list** instead: e.g. `SkillRequirement { skill_id, min_value }`, a fixed array of 2-4 per `EventDef`, checked as plain integer comparisons in `event_eligible` alongside the existing mask checks. Cheap to add without disrupting anything that already works.
+- This is exactly the mechanism that makes "a man with higher sex appeal hooks up more easily" work: it's not special-cased code, it's a `weight_base` that scales with a skill value at selection time (or a `min_value` threshold that gates the event's availability entirely), same as everything else.
+
+---
+
+## 16. Extensibility: Other BitLife-style Features
+
+Health, happiness, education level, jail/sentence tracking, pets, random encounters, achievements — all of these are variations on data already established:
+
+- **Meters that decay/grow over time** (health, happiness): `PersonWarm` scalars, nudged by `trait_deltas` on relevant events, same as loyalty or libido today.
+- **Education level, jail sentences**: small `PersonCold` fields (rarely touched, UI/flavor-adjacent) plus `EventDef` entries that gate on and modify them.
+- **Random encounters, achievements**: just more entries in the event table, no new subsystem — "random encounter" is what most events already are.
+
+The pattern holding across all of sections 13–16: almost everything BitLife-like reduces to *(a) a new scalar or flag on a person, and (b) new `EventDef` entries that read and write it*. The engine doesn't need to know what "sex appeal" or "jail sentence" *mean* — it just needs the field to exist and the event data to reference it. That's the payoff of the data-driven approach from section 1: content growth becomes an authoring problem, not a recurring engineering one.

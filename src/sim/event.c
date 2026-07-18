@@ -1,7 +1,5 @@
 #include "sim/event.h"
 
-#include "sim/relation.h"
-
 static uint8_t clamp_add_i8(uint8_t base, int8_t delta) {
     int32_t v = (int32_t)base + delta;
     if (v < 0)   v = 0;
@@ -52,12 +50,16 @@ void event_apply_partner(const EventDef* event, PersonPool* pool, uint32_t partn
 /*
  * Placeholder content. Real event catalogs get authored in the data/ DSL
  * and compiled to binary once src/tools/event_compiler exists (roadmap
- * item, not yet built) -- these four exist only to prove event_eligible
- * and event_apply work correctly across the cases that matter:
+ * item, not yet built) -- these exist only to prove the mechanisms work:
  *   - an ordinary all-ages event
  *   - an event gated at 18+ (min_age enforces the maturity boundary)
  *   - an event a LOYAL person is structurally excluded from
  *   - a crime event that sets flags for later events to react to
+ *   - a multi-person event that finds a brand new partner and creates a
+ *     relationship (the affair)
+ *   - a multi-person event that requires an EXISTING relationship of a
+ *     specific status and transitions it to a different status (friend
+ *     -> FWB), proving PARTNER_SOURCE_EXISTING_RELATION works
  */
 const EventDef g_example_events[] = {
     {
@@ -113,6 +115,7 @@ const EventDef g_example_events[] = {
         .flag_set = 0,
         .flag_clear = 0,
         .requires_partner = 1,
+        .partner_source = PARTNER_SOURCE_ANY_POPULATION,
         .partner_exclude_spouse = 1, /* the whole point -- it's not the spouse */
         .partner_min_age = 18,
         .partner_max_age = 255,
@@ -121,8 +124,33 @@ const EventDef g_example_events[] = {
         .partner_trait_deltas = { [WARM_TRAIT_LIBIDO] = 5 },
         .partner_flag_set = 0,
         .partner_flag_clear = 0,
-        .creates_relation_type = RELATION_AFFAIR,
-        .creates_relation_strength = 100,
+        .sets_relation_status = REL_STATUS_AFFAIR,
+        .relation_friendship_delta = 5,
+        .relation_romance_delta = 10,
+        .relation_lust_delta = 40,
+    },
+    {
+        .event_id = 5,
+        .name = "Hooked up with a friend",
+        .min_age = 18,
+        .max_age = 255,
+        .required_trait_mask = 0,
+        .forbidden_trait_mask = TRAIT_FLAG_MARRIED, /* keep this one clear of the cheating
+                                                       * event's territory for now */
+        .weight_base = 12,
+        .trait_deltas = { [WARM_TRAIT_LIBIDO] = 5 },
+        .flag_set = 0,
+        .flag_clear = 0,
+        .requires_partner = 1,
+        .partner_source = PARTNER_SOURCE_EXISTING_RELATION,
+        .partner_required_status = REL_STATUS_FRIEND, /* only fires if a FRIEND-status edge exists */
+        .partner_min_age = 18,
+        .partner_max_age = 255,
+        .partner_trait_deltas = { [WARM_TRAIT_LIBIDO] = 5 },
+        .sets_relation_status = REL_STATUS_FWB,
+        .relation_friendship_delta = 0,
+        .relation_romance_delta = 0,
+        .relation_lust_delta = 50,
     },
 };
 

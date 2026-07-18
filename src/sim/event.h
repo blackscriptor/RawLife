@@ -5,7 +5,15 @@
 #include <stdint.h>
 
 #include "sim/person.h"
+#include "sim/relation.h"
 #include "sim/traits.h"
+
+/* Where world_tick_year should look for a multi-person event's second
+ * participant. See the requires_partner block below. */
+typedef enum {
+    PARTNER_SOURCE_ANY_POPULATION = 0, /* search all living NPCs matching partner_* constraints */
+    PARTNER_SOURCE_EXISTING_RELATION,  /* search only the initiator's current relationship edges */
+} PartnerSource;
 
 /*
  * A life event. Fully data-describable -- once src/tools/event_compiler
@@ -38,7 +46,12 @@ typedef struct {
      * person this year (falls through, as if it were never eligible).
      */
     uint8_t  requires_partner;
-    uint8_t  partner_exclude_spouse; /* if set, initiator's current spouse (if any) is never chosen */
+    uint8_t  partner_source;         /* PartnerSource */
+    uint8_t  partner_required_status; /* RelationStatus the candidate edge must have,
+                                        * only checked when partner_source is
+                                        * PARTNER_SOURCE_EXISTING_RELATION */
+    uint8_t  partner_exclude_spouse; /* if set, initiator's current spouse (if any) is never chosen --
+                                       * meaningful for PARTNER_SOURCE_ANY_POPULATION searches */
     uint8_t  partner_min_age;
     uint8_t  partner_max_age;
     uint32_t partner_required_trait_mask;
@@ -47,8 +60,19 @@ typedef struct {
     uint32_t partner_flag_set;
     uint32_t partner_flag_clear;
 
-    uint8_t  creates_relation_type;     /* RelationType value, or 0 (RELATION_NONE) for none */
-    uint8_t  creates_relation_strength; /* strength for the new edge, if creates_relation_type != 0 */
+    /*
+     * How this event changes the relationship between initiator and
+     * partner, if requires_partner is set. sets_relation_status of
+     * REL_STATUS_KEEP leaves status unchanged (e.g. an event that nudges
+     * lust between existing FWBs without changing their status); any
+     * other value overwrites it. Applied via relation_upsert, which
+     * creates the edge if one doesn't exist yet (e.g. a brand new hookup
+     * found via PARTNER_SOURCE_ANY_POPULATION).
+     */
+    uint8_t  sets_relation_status;     /* RelationStatus, or REL_STATUS_KEEP for no change */
+    int8_t   relation_friendship_delta;
+    int8_t   relation_romance_delta;
+    int8_t   relation_lust_delta;
 } EventDef;
 
 /*

@@ -44,17 +44,34 @@ static void pass_age_up(PersonPool* pool) {
 }
 
 /*
- * Two-pass uniform selection among people satisfying a multi-person
- * event's partner_* constraints. O(active_count) per call -- acceptable
- * at medium population scale for now; if profiling later shows this is
- * hot, candidates can be cached per-tick instead of rescanned per event.
+ * Checks whether candidate `c` satisfies an event's partner_* age/trait
+ * constraints. Shared by both partner-source search modes below.
  */
-static uint32_t find_random_partner(WorldState* world, uint32_t initiator, const EventDef* event) {
+static bool candidate_matches(const PersonPool* pool, uint32_t c, const EventDef* event) {
+    if (pool->hot.age[c] < event->partner_min_age || pool->hot.age[c] > event->partner_max_age) {
+        return false;
+    }
+    if ((pool->hot.trait_flags[c] & event->partner_required_trait_mask) != event->partner_required_trait_mask) {
+        return false;
+    }
+    if (pool->hot.trait_flags[c] & event->partner_forbidden_trait_mask) {
+        return false;
+    }
+    return true;
+}
+
+/*
+ * Two-pass uniform selection among living NPCs satisfying an event's
+ * partner_* constraints. O(active_count) per call -- acceptable at medium
+ * population scale for now; if profiling later shows this is hot,
+ * candidates can be cached per-tick instead of rescanned per event.
+ */
+static uint32_t find_partner_any_population(WorldState* world, uint32_t initiator, const EventDef* event) {
     PersonPool* pool = world->people;
 
     uint32_t exclude_id = UINT32_MAX;
     if (event->partner_exclude_spouse) {
-        exclude_id = relation_find_first(world->relations, initiator, RELATION_SPOUSE);
+        exclude_id = relation_find_first_by_status(world->relations, initiator, REL_STATUS_SPOUSE);
     }
 
     uint32_t match_count = 0;
@@ -62,23 +79,16 @@ static uint32_t find_random_partner(WorldState* world, uint32_t initiator, const
         if (c == initiator || !person_is_alive(pool, c)) {
             continue;
         }
-        if (pool->hot.age[c] < event->partner_min_age || pool->hot.age[c] > event->partner_max_age) {
-            continue;
-        }
-        if ((pool->hot.trait_flags[c] & event->partner_required_trait_mask) != event->partner_required_trait_mask) {
-            continue;
-        }
-        if (pool->hot.trait_flags[c] & event->partner_forbidden_trait_mask) {
-            continue;
-        }
         if (event->partner_exclude_spouse && c == exclude_id) {
             continue;
         }
-        match_count++;
+        if (candidate_matches(pool, c, event)) {
+            match_count++;
+        }
     }
 
     if (match_count == 0) {
-        return UINT32_MAX; /* no valid candidate this year */
+        return UINT32_MAX;
     }
 
     uint32_t target_index = (uint32_t)(rng_next(&world->rng) % match_count);
@@ -87,16 +97,10 @@ static uint32_t find_random_partner(WorldState* world, uint32_t initiator, const
         if (c == initiator || !person_is_alive(pool, c)) {
             continue;
         }
-        if (pool->hot.age[c] < event->partner_min_age || pool->hot.age[c] > event->partner_max_age) {
-            continue;
-        }
-        if ((pool->hot.trait_flags[c] & event->partner_required_trait_mask) != event->partner_required_trait_mask) {
-            continue;
-        }
-        if (pool->hot.trait_flags[c] & event->partner_forbidden_trait_mask) {
-            continue;
-        }
         if (event->partner_exclude_spouse && c == exclude_id) {
+            continue;
+        }
+        if (!candidate_matches(pool, c, event)) {
             continue;
         }
         if (seen == target_index) {
@@ -106,6 +110,64 @@ static uint32_t find_random_partner(WorldState* world, uint32_t initiator, const
     }
 
     return UINT32_MAX; /* unreachable if match_count > 0, kept for safety */
+}
+
+/*
+ * Selection among the initiator's EXISTING relationship edges with a
+ * matching status (e.g. only fire if they already have a FRIEND-status
+ * edge). Bounded by MAX_RELATIONS_PER_PERSON per person, so this is cheap
+ * regardless of population size.
+ */
+static uint32_t find_partner_existing_relation(WorldState* world, uint32_t initiator, const EventDef* event) {
+    PersonPool* pool = world->people;
+    RelationPool* relations = world->relations;
+
+    uint8_t edge_count = relations->edge_count[initiator];
+    uint32_t match_count = 0;
+    for (uint8_t e = 0; e < edge_count; e++) {
+        const RelationEdge* edge = &relations->edges[initiator][e];
+        if (edge->status != (uint8_t)event->partner_required_status) {
+            continue;
+        }
+        if (!person_is_alive(pool, edge->other_id)) {
+            continue;
+        }
+        if (candidate_matches(pool, edge->other_id, event)) {
+            match_count++;
+        }
+    }
+
+    if (match_count == 0) {
+        return UINT32_MAX;
+    }
+
+    uint32_t target_index = (uint32_t)(rng_next(&world->rng) % match_count);
+    uint32_t seen = 0;
+    for (uint8_t e = 0; e < edge_count; e++) {
+        const RelationEdge* edge = &relations->edges[initiator][e];
+        if (edge->status != (uint8_t)event->partner_required_status) {
+            continue;
+        }
+        if (!person_is_alive(pool, edge->other_id)) {
+            continue;
+        }
+        if (!candidate_matches(pool, edge->other_id, event)) {
+            continue;
+        }
+        if (seen == target_index) {
+            return edge->other_id;
+        }
+        seen++;
+    }
+
+    return UINT32_MAX; /* unreachable if match_count > 0, kept for safety */
+}
+
+static uint32_t find_event_partner(WorldState* world, uint32_t initiator, const EventDef* event) {
+    if (event->partner_source == PARTNER_SOURCE_EXISTING_RELATION) {
+        return find_partner_existing_relation(world, initiator, event);
+    }
+    return find_partner_any_population(world, initiator, event);
 }
 
 static void pass_resolve_events(WorldState* world, const EventDef* events, uint32_t event_count) {
@@ -155,7 +217,7 @@ static void pass_resolve_events(WorldState* world, const EventDef* events, uint3
         const EventDef* event = &events[chosen];
 
         if (event->requires_partner) {
-            uint32_t partner = find_random_partner(world, i, event);
+            uint32_t partner = find_event_partner(world, i, event);
             if (partner == UINT32_MAX) {
                 continue; /* no valid partner this year -- event doesn't fire */
             }
@@ -163,11 +225,11 @@ static void pass_resolve_events(WorldState* world, const EventDef* events, uint3
             event_apply(event, pool, i);
             event_apply_partner(event, pool, partner);
 
-            if ((RelationType)event->creates_relation_type != RELATION_NONE) {
-                relation_add(world->relations, i, partner,
-                             (RelationType)event->creates_relation_type,
-                             event->creates_relation_strength);
-            }
+            relation_upsert(world->relations, i, partner,
+                             (RelationStatus)event->sets_relation_status,
+                             event->relation_friendship_delta,
+                             event->relation_romance_delta,
+                             event->relation_lust_delta);
         } else {
             event_apply(event, pool, i);
         }
