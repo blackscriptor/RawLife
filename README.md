@@ -24,9 +24,9 @@ over the simulation state instead of per-entity dispatch. See
 
 ## Status
 
-Early scaffold. Currently: a native Win32 window and the fixed-arena
-allocator that all simulation memory will be carved from. No simulation
-logic yet — that comes next.
+Early scaffold. Currently: a native Win32 window, the fixed-arena
+allocator, and the Person pool (hot/warm/cold struct-of-arrays split with
+free-list slot recycling). No trait/event system or rendering yet.
 
 ## Building
 
@@ -62,7 +62,7 @@ docs/
 ## Roadmap
 
 - [x] Repo scaffold, Win32 window, arena allocator
-- [ ] Person pool (struct-of-arrays, hot/cold split)
+- [x] Person pool (struct-of-arrays, hot/cold split, free-list recycling)
 - [ ] Trait table + event schema
 - [ ] Event compiler tool (DSL -> events.bin)
 - [ ] Simulation tick loop (age up, event resolution, relationships)

@@ -12,6 +12,7 @@
 #include <stdio.h>
 
 #include "sim/arena.h"
+#include "sim/person.h"
 
 static LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     switch (msg) {
@@ -23,24 +24,42 @@ static LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
     }
 }
 
-static void arena_smoke_test(void) {
-    /* Sanity check that the arena allocator works before anything else
-     * in the game depends on it. Removed once real unit tests exist. */
-    Arena arena = arena_create(1024 * 1024); /* 1 MB */
+/* Sanity check for the arena allocator + person pool before anything else
+ * in the game depends on them. Exercises spawn, kill, and slot recycling.
+ * Removed once real unit tests exist. */
+static void sim_smoke_test(void) {
+    Arena arena = arena_create(4 * 1024 * 1024); /* 4 MB -- plenty for one PersonPool */
     if (arena.base == NULL) {
         OutputDebugStringA("RawLife: arena_create failed\n");
         return;
     }
 
-    int* a = (int*)arena_alloc(&arena, sizeof(int) * 16, sizeof(int));
-    int* b = (int*)arena_alloc(&arena, sizeof(int) * 16, sizeof(int));
-    if (a != NULL && b != NULL) {
-        a[0] = 1;
-        b[0] = 2;
-        char buf[64];
-        wsprintfA(buf, "RawLife: arena OK, used=%zu bytes\n", arena.used);
-        OutputDebugStringA(buf);
+    PersonPool* pool = person_pool_create(&arena);
+    if (pool == NULL) {
+        OutputDebugStringA("RawLife: person_pool_create failed\n");
+        arena_destroy(&arena);
+        return;
     }
+
+    uint32_t alice = person_spawn(pool, "Alice", SEX_FEMALE, 2000);
+    uint32_t bob   = person_spawn(pool, "Bob", SEX_MALE, 1998);
+
+    char buf[128];
+    wsprintfA(buf, "RawLife: spawned %s (id=%lu, alive=%d) and %s (id=%lu, alive=%d)\n",
+              pool->cold.name[alice], alice, person_is_alive(pool, alice),
+              pool->cold.name[bob], bob, person_is_alive(pool, bob));
+    OutputDebugStringA(buf);
+
+    person_kill(pool, alice);
+    wsprintfA(buf, "RawLife: killed Alice -- alive=%d, free_count=%lu\n",
+              person_is_alive(pool, alice), pool->free_count);
+    OutputDebugStringA(buf);
+
+    /* Slot should be recycled here rather than allocating a fresh one. */
+    uint32_t carol = person_spawn(pool, "Carol", SEX_FEMALE, 2001);
+    wsprintfA(buf, "RawLife: spawned %s -- recycled id=%lu (expected %lu), free_count=%lu\n",
+              pool->cold.name[carol], carol, alice, pool->free_count);
+    OutputDebugStringA(buf);
 
     arena_destroy(&arena);
 }
@@ -49,7 +68,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     (void)hPrevInstance;
     (void)pCmdLine;
 
-    arena_smoke_test();
+    sim_smoke_test();
 
     const wchar_t CLASS_NAME[] = L"RawLifeWindowClass";
 

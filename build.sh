@@ -7,8 +7,10 @@ set -e
 mkdir -p build
 
 gcc -std=c11 -Wall -Wextra -Werror -O2 \
+    -mwindows -municode \
     src/platform/win32_main.c \
     src/sim/arena.c \
+    src/sim/person.c \
     -I src \
     -o build/rawlife.exe \
     -luser32 -lgdi32
