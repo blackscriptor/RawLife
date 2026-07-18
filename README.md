@@ -25,10 +25,9 @@ over the simulation state instead of per-entity dispatch. See
 ## Status
 
 Early scaffold. Currently: a native Win32 window, the fixed-arena
-allocator, the Person pool (hot/warm/cold struct-of-arrays split with
-free-list slot recycling), and the trait/event schema (EventDef,
-eligibility filtering, a handful of placeholder events proving age-gating
-and trait-gating work). No rendering or real content yet.
+allocator, the Person pool, the trait/event schema, and a working yearly
+simulation tick loop (age-up + weighted event resolution) driven by
+WorldState. No relationships, rendering, or real content yet.
 
 ## Building
 
@@ -66,8 +65,9 @@ docs/
 - [x] Repo scaffold, Win32 window, arena allocator
 - [x] Person pool (struct-of-arrays, hot/cold split, free-list recycling)
 - [x] Trait table + event schema
-- [ ] Event compiler tool (DSL -> events.bin)
-- [ ] Simulation tick loop (age up, event resolution, relationships)
+- [x] Simulation tick loop (age up, weighted event resolution)
+- [ ] Relationship graph (family/social edges between NPCs)
+- [ ] Event compiler tool (DSL -> events.bin, replaces hardcoded g_example_events)
 - [ ] Save/load
 - [ ] Direct2D rendering + basic UI
 - [ ] First playable content pass
