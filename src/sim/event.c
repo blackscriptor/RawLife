@@ -1,5 +1,7 @@
 #include "sim/event.h"
 
+#include "sim/relation.h"
+
 static uint8_t clamp_add_i8(uint8_t base, int8_t delta) {
     int32_t v = (int32_t)base + delta;
     if (v < 0)   v = 0;
@@ -20,22 +22,31 @@ bool event_eligible(const EventDef* event, uint8_t age, uint32_t trait_flags) {
     return true;
 }
 
-void event_apply(const EventDef* event, PersonPool* pool, uint32_t person_id) {
-    pool->hot.trait_flags[person_id] |= event->flag_set;
-    pool->hot.trait_flags[person_id] &= ~event->flag_clear;
+static void apply_deltas(PersonPool* pool, uint32_t person_id, const int8_t deltas[TRAIT_COUNT],
+                          uint32_t flag_set, uint32_t flag_clear) {
+    pool->hot.trait_flags[person_id] |= flag_set;
+    pool->hot.trait_flags[person_id] &= ~flag_clear;
 
     pool->warm.loyalty[person_id] =
-        clamp_add_i8(pool->warm.loyalty[person_id], event->trait_deltas[WARM_TRAIT_LOYALTY]);
+        clamp_add_i8(pool->warm.loyalty[person_id], deltas[WARM_TRAIT_LOYALTY]);
     pool->warm.charisma[person_id] =
-        clamp_add_i8(pool->warm.charisma[person_id], event->trait_deltas[WARM_TRAIT_CHARISMA]);
+        clamp_add_i8(pool->warm.charisma[person_id], deltas[WARM_TRAIT_CHARISMA]);
     pool->warm.strength[person_id] =
-        clamp_add_i8(pool->warm.strength[person_id], event->trait_deltas[WARM_TRAIT_STRENGTH]);
+        clamp_add_i8(pool->warm.strength[person_id], deltas[WARM_TRAIT_STRENGTH]);
     pool->warm.beauty[person_id] =
-        clamp_add_i8(pool->warm.beauty[person_id], event->trait_deltas[WARM_TRAIT_BEAUTY]);
+        clamp_add_i8(pool->warm.beauty[person_id], deltas[WARM_TRAIT_BEAUTY]);
     pool->warm.intelligence[person_id] =
-        clamp_add_i8(pool->warm.intelligence[person_id], event->trait_deltas[WARM_TRAIT_INTELLIGENCE]);
+        clamp_add_i8(pool->warm.intelligence[person_id], deltas[WARM_TRAIT_INTELLIGENCE]);
     pool->warm.libido[person_id] =
-        clamp_add_i8(pool->warm.libido[person_id], event->trait_deltas[WARM_TRAIT_LIBIDO]);
+        clamp_add_i8(pool->warm.libido[person_id], deltas[WARM_TRAIT_LIBIDO]);
+}
+
+void event_apply(const EventDef* event, PersonPool* pool, uint32_t person_id) {
+    apply_deltas(pool, person_id, event->trait_deltas, event->flag_set, event->flag_clear);
+}
+
+void event_apply_partner(const EventDef* event, PersonPool* pool, uint32_t partner_id) {
+    apply_deltas(pool, partner_id, event->partner_trait_deltas, event->partner_flag_set, event->partner_flag_clear);
 }
 
 /*
@@ -101,6 +112,17 @@ const EventDef g_example_events[] = {
         .trait_deltas = { [WARM_TRAIT_LOYALTY] = -20 },
         .flag_set = 0,
         .flag_clear = 0,
+        .requires_partner = 1,
+        .partner_exclude_spouse = 1, /* the whole point -- it's not the spouse */
+        .partner_min_age = 18,
+        .partner_max_age = 255,
+        .partner_required_trait_mask = 0,
+        .partner_forbidden_trait_mask = 0,
+        .partner_trait_deltas = { [WARM_TRAIT_LIBIDO] = 5 },
+        .partner_flag_set = 0,
+        .partner_flag_clear = 0,
+        .creates_relation_type = RELATION_AFFAIR,
+        .creates_relation_strength = 100,
     },
 };
 

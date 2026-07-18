@@ -25,10 +25,11 @@ over the simulation state instead of per-entity dispatch. See
 ## Status
 
 Early scaffold. Currently: a native Win32 window, the fixed-arena
-allocator, the Person pool, the trait/event schema, a working yearly
-simulation tick loop, and a relationship graph (parent/child, spouse,
-friend, rival, affair edges between NPCs, O(1) lookup from either side).
-Events don't yet reference relationships during resolution -- that's next.
+allocator, the Person pool, the trait/event schema, a yearly simulation
+tick loop, a relationship graph, and multi-person event resolution --
+events like "Cheated on partner" now search the living population for a
+real second participant, apply separate consequences to them, and can
+create a new relationship edge (e.g. RELATION_AFFAIR) between the two.
 No rendering or real content yet.
 
 ## Building
@@ -69,6 +70,7 @@ docs/
 - [x] Trait table + event schema
 - [x] Simulation tick loop (age up, weighted event resolution)
 - [x] Relationship graph (family/social edges between NPCs)
+- [x] Multi-person events (partner search, dual consequences, relation edges)
 - [ ] Event compiler tool (DSL -> events.bin, replaces hardcoded g_example_events)
 - [ ] Save/load
 - [ ] Direct2D rendering + basic UI

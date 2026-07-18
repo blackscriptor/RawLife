@@ -112,7 +112,7 @@ static void sim_smoke_test(void) {
     print_person(world, grace);
     print_person(world, mary);
 
-    for (uint32_t y = 1; y <= 10; y++) {
+    for (uint32_t y = 1; y <= 20; y++) {
         world_tick_year(world, g_example_events, g_example_event_count);
         printf("RawLife: -- year %u --\n", world->year);
         print_person(world, dave);
@@ -120,6 +120,26 @@ static void sim_smoke_test(void) {
         print_person(world, frank);
         print_person(world, grace);
         print_person(world, mary);
+    }
+
+    printf("RawLife: -- affair check across 20 years --\n");
+    uint32_t cast[] = { dave, erin, frank, grace, mary };
+    bool any_affair = false;
+    for (uint32_t p = 0; p < 5; p++) {
+        uint32_t id = cast[p];
+        uint8_t edge_count = world->relations->edge_count[id];
+        for (uint8_t e = 0; e < edge_count; e++) {
+            const RelationEdge* edge = &world->relations->edges[id][e];
+            if (edge->type == RELATION_AFFAIR) {
+                printf("  %s had an affair with %s\n",
+                       world->people->cold.name[id], world->people->cold.name[edge->other_id]);
+                any_affair = true;
+            }
+        }
+    }
+    if (!any_affair) {
+        printf("  none this run (weight_base=8 is intentionally low -- rerun with a "
+               "different seed in world_create() or more years if you want to see it fire)\n");
     }
 
     fflush(stdout);

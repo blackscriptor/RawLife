@@ -43,6 +43,71 @@ static void pass_age_up(PersonPool* pool) {
     }
 }
 
+/*
+ * Two-pass uniform selection among people satisfying a multi-person
+ * event's partner_* constraints. O(active_count) per call -- acceptable
+ * at medium population scale for now; if profiling later shows this is
+ * hot, candidates can be cached per-tick instead of rescanned per event.
+ */
+static uint32_t find_random_partner(WorldState* world, uint32_t initiator, const EventDef* event) {
+    PersonPool* pool = world->people;
+
+    uint32_t exclude_id = UINT32_MAX;
+    if (event->partner_exclude_spouse) {
+        exclude_id = relation_find_first(world->relations, initiator, RELATION_SPOUSE);
+    }
+
+    uint32_t match_count = 0;
+    for (uint32_t c = 0; c < pool->active_count; c++) {
+        if (c == initiator || !person_is_alive(pool, c)) {
+            continue;
+        }
+        if (pool->hot.age[c] < event->partner_min_age || pool->hot.age[c] > event->partner_max_age) {
+            continue;
+        }
+        if ((pool->hot.trait_flags[c] & event->partner_required_trait_mask) != event->partner_required_trait_mask) {
+            continue;
+        }
+        if (pool->hot.trait_flags[c] & event->partner_forbidden_trait_mask) {
+            continue;
+        }
+        if (event->partner_exclude_spouse && c == exclude_id) {
+            continue;
+        }
+        match_count++;
+    }
+
+    if (match_count == 0) {
+        return UINT32_MAX; /* no valid candidate this year */
+    }
+
+    uint32_t target_index = (uint32_t)(rng_next(&world->rng) % match_count);
+    uint32_t seen = 0;
+    for (uint32_t c = 0; c < pool->active_count; c++) {
+        if (c == initiator || !person_is_alive(pool, c)) {
+            continue;
+        }
+        if (pool->hot.age[c] < event->partner_min_age || pool->hot.age[c] > event->partner_max_age) {
+            continue;
+        }
+        if ((pool->hot.trait_flags[c] & event->partner_required_trait_mask) != event->partner_required_trait_mask) {
+            continue;
+        }
+        if (pool->hot.trait_flags[c] & event->partner_forbidden_trait_mask) {
+            continue;
+        }
+        if (event->partner_exclude_spouse && c == exclude_id) {
+            continue;
+        }
+        if (seen == target_index) {
+            return c;
+        }
+        seen++;
+    }
+
+    return UINT32_MAX; /* unreachable if match_count > 0, kept for safety */
+}
+
 static void pass_resolve_events(WorldState* world, const EventDef* events, uint32_t event_count) {
     PersonPool* pool = world->people;
 
@@ -87,7 +152,25 @@ static void pass_resolve_events(WorldState* world, const EventDef* events, uint3
             }
         }
 
-        event_apply(&events[chosen], pool, i);
+        const EventDef* event = &events[chosen];
+
+        if (event->requires_partner) {
+            uint32_t partner = find_random_partner(world, i, event);
+            if (partner == UINT32_MAX) {
+                continue; /* no valid partner this year -- event doesn't fire */
+            }
+
+            event_apply(event, pool, i);
+            event_apply_partner(event, pool, partner);
+
+            if ((RelationType)event->creates_relation_type != RELATION_NONE) {
+                relation_add(world->relations, i, partner,
+                             (RelationType)event->creates_relation_type,
+                             event->creates_relation_strength);
+            }
+        } else {
+            event_apply(event, pool, i);
+        }
     }
 }
 

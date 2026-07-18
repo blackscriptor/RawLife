@@ -27,6 +27,28 @@ typedef struct {
     int8_t   trait_deltas[TRAIT_COUNT]; /* indexed by WarmTraitId, applied on resolution */
     uint32_t flag_set;             /* trait_flags bits to set on resolution */
     uint32_t flag_clear;           /* trait_flags bits to clear on resolution */
+
+    /*
+     * Multi-person events (e.g. an affair) need a second participant.
+     * If requires_partner is nonzero, world_tick_year searches the living
+     * population for a candidate satisfying the partner_* constraints
+     * below, picks one uniformly at random, and applies partner_* effects
+     * to them in addition to the normal effects applied to the initiator.
+     * If no valid candidate exists, the event does not fire for that
+     * person this year (falls through, as if it were never eligible).
+     */
+    uint8_t  requires_partner;
+    uint8_t  partner_exclude_spouse; /* if set, initiator's current spouse (if any) is never chosen */
+    uint8_t  partner_min_age;
+    uint8_t  partner_max_age;
+    uint32_t partner_required_trait_mask;
+    uint32_t partner_forbidden_trait_mask;
+    int8_t   partner_trait_deltas[TRAIT_COUNT];
+    uint32_t partner_flag_set;
+    uint32_t partner_flag_clear;
+
+    uint8_t  creates_relation_type;     /* RelationType value, or 0 (RELATION_NONE) for none */
+    uint8_t  creates_relation_strength; /* strength for the new edge, if creates_relation_type != 0 */
 } EventDef;
 
 /*
@@ -44,6 +66,14 @@ bool event_eligible(const EventDef* event, uint8_t age, uint32_t trait_flags);
  * the 0-255 fixed-point range.
  */
 void event_apply(const EventDef* event, PersonPool* pool, uint32_t person_id);
+
+/*
+ * Same as event_apply, but for the second participant in a multi-person
+ * event -- uses partner_trait_deltas/partner_flag_set/partner_flag_clear
+ * instead of the initiator's fields. Only meaningful when
+ * event->requires_partner is set.
+ */
+void event_apply_partner(const EventDef* event, PersonPool* pool, uint32_t partner_id);
 
 /*
  * Placeholder hardcoded event table standing in for the real data-driven
