@@ -30,17 +30,18 @@ logic yet — that comes next.
 
 ## Building
 
-Requires MSVC (Visual Studio Build Tools or full VS, with the "Desktop
-development with C++" workload, which includes the C compiler and Windows
-SDK).
+Requires [MSYS2](https://www.msys2.org/) with the UCRT64 toolchain
+(`pacman -S mingw-w64-ucrt-x86_64-gcc` if you don't already have it).
 
-From a "Developer Command Prompt for VS":
+From a **UCRT64** terminal (not plain MSYS, not MINGW64 -- check your
+prompt/terminal profile):
 
 ```
-build.bat
+./build.sh
 ```
 
-This produces `build\rawlife.exe`.
+This produces `build/rawlife.exe`. Runs as a normal native Windows exe --
+you can launch it from Explorer or a regular cmd/PowerShell window too.
 
 ## Project Layout
 
