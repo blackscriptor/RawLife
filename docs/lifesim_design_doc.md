@@ -341,3 +341,27 @@ Health, happiness, education level, jail/sentence tracking, pets, random encount
 - **Random encounters, achievements**: just more entries in the event table, no new subsystem — "random encounter" is what most events already are.
 
 The pattern holding across all of sections 13–16: almost everything BitLife-like reduces to *(a) a new scalar or flag on a person, and (b) new `EventDef` entries that read and write it*. The engine doesn't need to know what "sex appeal" or "jail sentence" *mean* — it just needs the field to exist and the event data to reference it. That's the payoff of the data-driven approach from section 1: content growth becomes an authoring problem, not a recurring engineering one.
+
+---
+
+## 17. Extensibility: Countries, Cities, and Regional Content
+
+Not yet implemented. Two separate concerns worth keeping distinct: **regional event weighting** (Japan gets more earthquake events) and **regional name pools** (NPCs from Japan get Japanese names). Both follow the established data-driven pattern.
+
+### 17.1 Data tables
+
+- **`CountryDef`**: id, display name, a small fixed array of `(event_id, weight_multiplier)` overrides — most events won't need a country entry at all (multiplier defaults to 1.0/neutral), only regionally-flavored ones do. A generic "earthquake" event could have `min_age = 0`, apply to everyone regardless of country, but with `weight_base` scaled per-country via this override table (Japan multiplies it up, most other countries leave it at zero or near-zero).
+- **`CityDef`** (optional second tier, if city-level granularity is wanted beyond country-level): same shape, references a parent `CountryDef`. Not necessary for a first pass — country-level alone covers "being in Japan means more earthquakes" — but the pattern extends cleanly if city-level flavor is wanted later (e.g. a specific city with a crime-rate modifier distinct from its country's baseline).
+- **Name pools**: per-country lists of common first names (split by sex, matching `SEX_MALE`/`SEX_FEMALE`) and surnames, authored as data (a natural extension of the existing DSL/compiler pattern — a `names.def` compiled alongside `events.def`). `person_spawn` gains an optional `country_id` parameter; when a name isn't explicitly provided (e.g. for procedurally generated NPCs, as opposed to the player's own chosen name), it's drawn from that country's pool instead of the caller supplying a literal string.
+
+### 17.2 Person data
+
+A `country_id` (and optionally `city_id`) field on `PersonCold` — rarely touched, doesn't need to be in the hot/warm tiers. This is what both the naming system and the event-weighting system key off of.
+
+### 17.3 Event resolution
+
+The eligibility check (`event_eligible`) doesn't need to change — age/trait gating stays exactly as-is. What changes is **weight**, in `pass_resolve_events`: instead of using `event->weight_base` directly, look up the person's `country_id` against that event's override table (if any) and apply the multiplier before the weighted roll. This is a small, contained change to one function, not a restructuring — the country system sits as a modifier on top of the existing selection mechanism rather than replacing it.
+
+### 17.4 Scope for a first pass
+
+Given "don't need a huge country list right now" — a first implementation would reasonably cover: a handful of `CountryDef` entries (5–10 countries), one or two events with real regional weighting to prove the mechanism (earthquakes for Japan-like entries, hurricanes for Gulf-coast-like entries, etc.), and small first/last name pools per country (10–20 names each is enough to avoid obvious repetition without needing a large dataset yet). The architecture doesn't care how big the list is — growing it later is purely a data-authoring task, same as growing the event catalog.

@@ -236,6 +236,7 @@ static void app_render_frame(AppState* app) {
     RenderColor text_color = { 0.92f, 0.92f, 0.92f, 1.0f };
     RenderColor player_color = { 1.0f, 0.85f, 0.35f, 1.0f };
     RenderColor log_color = { 0.65f, 0.85f, 1.0f, 1.0f };
+    RenderColor choice_color = { 0.55f, 1.0f, 0.55f, 1.0f };
 
     renderer_begin_frame(app->renderer, bg);
 
@@ -243,8 +244,13 @@ static void app_render_frame(AppState* app) {
     wchar_t line[128];
     float y = 20.0f;
     const float line_height = 26.0f;
+    bool pending = app->world->player_has_pending_choice;
 
-    wsprintfW(line, L"RawLife -- Year %u   (press SPACE to advance a year)", app->world->year);
+    if (pending) {
+        wsprintfW(line, L"RawLife -- Year %u   (press a number to choose, or S to skip)", app->world->year);
+    } else {
+        wsprintfW(line, L"RawLife -- Year %u   (press SPACE to advance a year)", app->world->year);
+    }
     renderer_draw_text(app->renderer, 20.0f, y, 700.0f, line_height, line, text_color);
     y += line_height * 1.5f;
 
@@ -266,25 +272,39 @@ static void app_render_frame(AppState* app) {
     y += line_height;
 
     y += line_height * 0.5f;
-    renderer_draw_text(app->renderer, 20.0f, y, 700.0f, line_height, L"This year:", text_color);
-    y += line_height;
 
-    if (app->world->tick_log_count == 0) {
-        renderer_draw_text(app->renderer, 40.0f, y, 700.0f, line_height, L"(nothing yet)", log_color);
+    if (pending) {
+        renderer_draw_text(app->renderer, 20.0f, y, 700.0f, line_height, L"What do you do?", text_color);
         y += line_height;
-    } else {
-        for (uint32_t i = 0; i < app->world->tick_log_count; i++) {
-            const EventLogEntry* entry = &app->world->tick_log[i];
-            const char* event_name = find_event_name(app->events, app->event_count, entry->event_id);
 
-            if (entry->partner_id != UINT32_MAX) {
-                wsprintfW(line, L"%hs -- %hs & %hs",
-                          event_name, pool->cold.name[entry->person_id], pool->cold.name[entry->partner_id]);
-            } else {
-                wsprintfW(line, L"%hs -- %hs", event_name, pool->cold.name[entry->person_id]);
-            }
-            renderer_draw_text(app->renderer, 40.0f, y, 700.0f, line_height, line, log_color);
+        for (uint32_t i = 0; i < app->world->player_choice_option_count; i++) {
+            uint32_t event_index = app->world->player_choice_options[i];
+            const char* event_name = app->events[event_index].name;
+            wsprintfW(line, L"  [%u] %hs", i + 1, event_name);
+            renderer_draw_text(app->renderer, 40.0f, y, 700.0f, line_height, line, choice_color);
             y += line_height;
+        }
+    } else {
+        renderer_draw_text(app->renderer, 20.0f, y, 700.0f, line_height, L"This year:", text_color);
+        y += line_height;
+
+        if (app->world->tick_log_count == 0) {
+            renderer_draw_text(app->renderer, 40.0f, y, 700.0f, line_height, L"(nothing yet)", log_color);
+            y += line_height;
+        } else {
+            for (uint32_t i = 0; i < app->world->tick_log_count; i++) {
+                const EventLogEntry* entry = &app->world->tick_log[i];
+                const char* event_name = find_event_name(app->events, app->event_count, entry->event_id);
+
+                if (entry->partner_id != UINT32_MAX) {
+                    wsprintfW(line, L"%hs -- %hs & %hs",
+                              event_name, pool->cold.name[entry->person_id], pool->cold.name[entry->partner_id]);
+                } else {
+                    wsprintfW(line, L"%hs -- %hs", event_name, pool->cold.name[entry->person_id]);
+                }
+                renderer_draw_text(app->renderer, 40.0f, y, 700.0f, line_height, line, log_color);
+                y += line_height;
+            }
         }
     }
 
@@ -320,9 +340,22 @@ static LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
         }
 
         case WM_KEYDOWN:
-            if (wparam == VK_SPACE && app != NULL) {
-                world_tick_year(app->world, app->events, app->event_count);
-                InvalidateRect(hwnd, NULL, FALSE);
+            if (app != NULL) {
+                if (app->world->player_has_pending_choice) {
+                    if (wparam >= '1' && wparam <= '9') {
+                        uint32_t option_index = (uint32_t)(wparam - '1');
+                        if (option_index < app->world->player_choice_option_count) {
+                            world_apply_player_choice(app->world, app->events, app->event_count, option_index);
+                            InvalidateRect(hwnd, NULL, FALSE);
+                        }
+                    } else if (wparam == 'S') {
+                        world_skip_player_choice(app->world);
+                        InvalidateRect(hwnd, NULL, FALSE);
+                    }
+                } else if (wparam == VK_SPACE) {
+                    world_tick_year(app->world, app->events, app->event_count);
+                    InvalidateRect(hwnd, NULL, FALSE);
+                }
             }
             return 0;
 
@@ -378,6 +411,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
                  REL_CATEGORY_FAMILY_PARENT_CHILD, REL_STATUS_NONE, 0, 0, 0);
     relation_add(app.world->relations, app.mother_id, app.father_id,
                  REL_CATEGORY_NONE, REL_STATUS_SPOUSE, 180, 200, 150);
+
+    world_set_player(app.world, app.player_id);
 
     app.events = g_example_events;
     app.event_count = g_example_event_count;

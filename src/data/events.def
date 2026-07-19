@@ -105,3 +105,29 @@ event
   sets_relation_status fwb
   relation_delta lust 50
 end
+
+event
+  id 6
+  name "Received routine vaccination"
+  min_age 0
+  max_age 2
+  weight 90
+end
+
+event
+  id 7
+  name "Learned to walk"
+  min_age 1
+  max_age 2
+  weight 70
+  trait_delta strength 2
+end
+
+event
+  id 8
+  name "Started school"
+  min_age 5
+  max_age 5
+  weight 95
+  trait_delta intelligence 3
+end

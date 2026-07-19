@@ -99,6 +99,8 @@ docs/
 - [x] Player-centric model (one person born at age 0, two parents, distinguished in UI)
 - [ ] First playable content pass
   - [ ] Character creation screen (name entry at minimum)
-  - [ ] Player choices during events (currently auto-resolved like any NPC)
+  - [x] Player choices during events (up to 4 options staged, number keys choose, S skips)
   - [ ] Expanded events.def content
   - [ ] UI polish (currently plain text lines, no layout system)
+- [ ] Countries/cities (regional event weighting + name pools) -- design documented in
+      docs/lifesim_design_doc.md section 17, not yet implemented
