@@ -30,8 +30,9 @@ gcc -std=c11 -Wall -Wextra -Werror -O2 \
     src/sim/relation.c \
     src/sim/world.c \
     src/save/save.c \
+    src/render/renderer.c \
     -I src \
     -o build/rawlife.exe \
-    -luser32 -lgdi32
+    -luser32 -lgdi32 -ld2d1 -ldwrite -lole32 -luuid
 
 echo "Build succeeded: build/rawlife.exe (events compiled from src/data/events.def)"

@@ -1,37 +1,30 @@
 /*
  * Native Win32 entry point and message loop.
  *
- * This is intentionally minimal for now: it opens a window and pumps
- * messages. Rendering (Direct2D) is not wired in yet -- this step is the
- * platform shell + a smoke test that runs the world simulation forward
- * several years with a small family/friend/spouse network, so we have a
- * real buildable baseline before layering in rendering.
- *
- * Built as a console-subsystem app (no -mwindows) so smoke test output
- * is visible in a normal terminal. Once real rendering lands, this
- * switches to -mwindows and diagnostics move to a log file instead.
+ * Built as a console-subsystem app (no -mwindows) for now, specifically
+ * so the startup smoke test's printf output stays visible in a normal
+ * terminal alongside the window. Once the console output isn't needed
+ * for day-to-day debugging anymore, this switches to -mwindows.
  */
 
 #include <windows.h>
 #include <stdio.h>
 
+#include "render/renderer.h"
+#include "save/save.h"
 #include "sim/arena.h"
 #include "sim/event.h"
 #include "sim/person.h"
 #include "sim/relation.h"
 #include "sim/traits.h"
 #include "sim/world.h"
-#include "save/save.h"
 
-static LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-    switch (msg) {
-        case WM_DESTROY:
-            PostQuitMessage(0);
-            return 0;
-        default:
-            return DefWindowProcW(hwnd, msg, wparam, lparam);
-    }
-}
+/* ---------------------------------------------------------------------
+ * Startup smoke test -- exercises arena/person/event/relation/save-load
+ * end to end via console output. Unchanged in shape from previous steps;
+ * kept as a quick regression check that runs once before the window
+ * opens. Removed once real automated tests exist.
+ * --------------------------------------------------------------------- */
 
 static const char* status_name(uint8_t status) {
     switch (status) {
@@ -56,7 +49,7 @@ static const char* category_name(uint8_t category) {
         case REL_CATEGORY_FAMILY_PARENT_CHILD: return "family:parent/child";
         case REL_CATEGORY_FAMILY_SIBLING:       return "family:sibling";
         case REL_CATEGORY_FAMILY_EXTENDED:      return "family:extended";
-        default:                                return NULL; /* not family -- don't print a category */
+        default:                                return NULL;
     }
 }
 
@@ -94,21 +87,14 @@ static void print_person(const WorldState* world, uint32_t id) {
     }
 }
 
-/* Sanity check for the full simulation stack so far: arena, person pool,
- * event schema, multi-axis relationship graph, and the yearly tick loop.
- * Builds a small family/friend network -- deliberately including two
- * different "friend" pairs with very different relationship shapes, to
- * demonstrate that friendship/romance/lust are independent axes rather
- * than one collapsed "relationship strength" number. Removed once real
- * unit tests and real UI exist. */
 static void sim_smoke_test(void) {
-    Arena arena = arena_create(4 * 1024 * 1024); /* 4 MB -- plenty for one world */
+    Arena arena = arena_create(4 * 1024 * 1024);
     if (arena.base == NULL) {
         printf("RawLife: arena_create failed\n");
         return;
     }
 
-    WorldState* world = world_create(&arena, 12345 /* fixed seed -- reproducible run */);
+    WorldState* world = world_create(&arena, 12345);
     if (world == NULL) {
         printf("RawLife: world_create failed\n");
         arena_destroy(&arena);
@@ -119,8 +105,8 @@ static void sim_smoke_test(void) {
     uint32_t erin  = person_spawn(world->people, "Erin", SEX_FEMALE, 2008);
     uint32_t frank = person_spawn(world->people, "Frank", SEX_MALE, 2000);
     uint32_t grace = person_spawn(world->people, "Grace", SEX_FEMALE, 2001);
-    uint32_t mary  = person_spawn(world->people, "Mary", SEX_FEMALE, 1975); /* Dave's mother */
-    uint32_t holly = person_spawn(world->people, "Holly", SEX_FEMALE, 2000); /* Frank's close-but-platonic friend */
+    uint32_t mary  = person_spawn(world->people, "Mary", SEX_FEMALE, 1975);
+    uint32_t holly = person_spawn(world->people, "Holly", SEX_FEMALE, 2000);
 
     world->people->hot.age[dave] = 16;
     world->people->hot.age[erin] = 16;
@@ -132,21 +118,11 @@ static void sim_smoke_test(void) {
     world->people->hot.trait_flags[frank] |= TRAIT_FLAG_MARRIED;
     world->people->hot.trait_flags[grace] |= TRAIT_FLAG_MARRIED;
 
-    /* Family tie -- permanent, independent of any status. */
     relation_add(world->relations, dave, mary, REL_CATEGORY_FAMILY_PARENT_CHILD, REL_STATUS_NONE, 0, 0, 0);
-
-    /* Two very different "friend" relationships, to prove the axes are
-     * independent rather than one collapsed number: */
     relation_add(world->relations, dave, erin, REL_CATEGORY_NONE, REL_STATUS_BEST_FRIEND, 220, 5, 0);
     relation_add(world->relations, frank, holly, REL_CATEGORY_NONE, REL_STATUS_FRIEND, 140, 10, 60);
-
     relation_add(world->relations, frank, grace, REL_CATEGORY_NONE, REL_STATUS_SPOUSE, 180, 200, 150);
 
-    /* Load the compiled event table (src/data/events.def -> build/events.bin
-     * via src/tools/event_compiler) instead of using the hardcoded
-     * g_example_events -- this is what actually drives the game now.
-     * Falls back to g_example_events if the compiled file is missing, so
-     * the smoke test still runs even before you've built events.bin. */
     const EventDef* event_table = g_example_events;
     uint32_t event_table_count = g_example_event_count;
     if (event_table_load(&arena, "build/events.bin", &event_table, &event_table_count)) {
@@ -190,10 +166,6 @@ static void sim_smoke_test(void) {
         }
     }
 
-    /* Save/load round trip: write world to disk, load it into a completely
-     * separate WorldState (its own arena, its own pools), and confirm the
-     * loaded copy matches -- proves the save format actually round-trips
-     * rather than just not crashing. */
     const char* save_path = "rawlife_smoketest.sav";
     if (!world_save(world, save_path)) {
         printf("RawLife: world_save failed\n");
@@ -206,10 +178,6 @@ static void sim_smoke_test(void) {
         if (loaded == NULL || !world_load(loaded, save_path)) {
             printf("RawLife: world_load failed\n");
         } else {
-            printf("RawLife: -- loaded copy, year %u (expected %u) --\n", loaded->year, world->year);
-            print_person(loaded, dave);
-            print_person(loaded, frank);
-
             bool match = (loaded->year == world->year) &&
                          (loaded->people->hot.age[dave] == world->people->hot.age[dave]) &&
                          (loaded->people->warm.loyalty[frank] == world->people->warm.loyalty[frank]) &&
@@ -224,11 +192,146 @@ static void sim_smoke_test(void) {
     arena_destroy(&arena);
 }
 
+/* ---------------------------------------------------------------------
+ * The actual window: a persistent world, rendered with Direct2D, with
+ * spacebar advancing the simulation by one year. First rendering pass --
+ * deliberately just text on a cleared background, no layout system or
+ * interaction beyond the one key. AppState is a stack local in
+ * wWinMain (see below) whose address is stashed in the window's
+ * GWLP_USERDATA slot -- safe because wWinMain's frame lives for the
+ * entire message loop.
+ * --------------------------------------------------------------------- */
+
+#define CAST_SIZE 6
+
+typedef struct {
+    Arena arena;
+    WorldState* world;
+    const EventDef* events;
+    uint32_t event_count;
+    uint32_t cast[CAST_SIZE];
+    Renderer* renderer;
+} AppState;
+
+static void app_render_frame(AppState* app) {
+    RenderColor bg = { 0.08f, 0.08f, 0.11f, 1.0f };
+    RenderColor text_color = { 0.92f, 0.92f, 0.92f, 1.0f };
+
+    renderer_begin_frame(app->renderer, bg);
+
+    wchar_t line[128];
+    float y = 20.0f;
+    const float line_height = 26.0f;
+
+    wsprintfW(line, L"RawLife -- Year %u   (press SPACE to advance a year)", app->world->year);
+    renderer_draw_text(app->renderer, 20.0f, y, 700.0f, line_height, line, text_color);
+    y += line_height * 1.5f;
+
+    for (uint32_t i = 0; i < CAST_SIZE; i++) {
+        uint32_t id = app->cast[i];
+        PersonPool* pool = app->world->people;
+        wsprintfW(line, L"%hs   age=%u   loyalty=%u",
+                  pool->cold.name[id], pool->hot.age[id], pool->warm.loyalty[id]);
+        renderer_draw_text(app->renderer, 20.0f, y, 700.0f, line_height, line, text_color);
+        y += line_height;
+    }
+
+    if (!renderer_end_frame(app->renderer)) {
+        /* Render target lost (e.g. graphics device reset). Not yet
+         * handled -- would need to destroy and recreate the Renderer
+         * here. Flagging rather than silently leaving the window blank. */
+        OutputDebugStringA("RawLife: renderer device lost, recreation not yet implemented\n");
+    }
+}
+
+static LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+    AppState* app = (AppState*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+
+    switch (msg) {
+        case WM_SIZE:
+            if (app != NULL && app->renderer != NULL) {
+                renderer_resize(app->renderer, LOWORD(lparam), HIWORD(lparam));
+            }
+            return 0;
+
+        case WM_ERASEBKGND:
+            return 1; /* Direct2D repaints the whole client area every frame -- avoid GDI flicker */
+
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            BeginPaint(hwnd, &ps);
+            if (app != NULL) {
+                app_render_frame(app);
+            }
+            EndPaint(hwnd, &ps);
+            return 0;
+        }
+
+        case WM_KEYDOWN:
+            if (wparam == VK_SPACE && app != NULL) {
+                world_tick_year(app->world, app->events, app->event_count);
+                InvalidateRect(hwnd, NULL, FALSE);
+            }
+            return 0;
+
+        case WM_DESTROY:
+            if (app != NULL) {
+                renderer_destroy(app->renderer);
+                app->renderer = NULL;
+            }
+            PostQuitMessage(0);
+            return 0;
+
+        default:
+            return DefWindowProcW(hwnd, msg, wparam, lparam);
+    }
+}
+
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow) {
     (void)hPrevInstance;
     (void)pCmdLine;
 
     sim_smoke_test();
+
+    AppState app;
+    app.arena = arena_create(8 * 1024 * 1024);
+    if (app.arena.base == NULL) {
+        printf("RawLife: failed to allocate world arena\n");
+        return 1;
+    }
+
+    app.world = world_create(&app.arena, 777);
+    if (app.world == NULL) {
+        printf("RawLife: world_create failed\n");
+        return 1;
+    }
+
+    app.cast[0] = person_spawn(app.world->people, "Dave", SEX_MALE, 2008);
+    app.cast[1] = person_spawn(app.world->people, "Erin", SEX_FEMALE, 2008);
+    app.cast[2] = person_spawn(app.world->people, "Frank", SEX_MALE, 2000);
+    app.cast[3] = person_spawn(app.world->people, "Grace", SEX_FEMALE, 2001);
+    app.cast[4] = person_spawn(app.world->people, "Mary", SEX_FEMALE, 1975);
+    app.cast[5] = person_spawn(app.world->people, "Holly", SEX_FEMALE, 2000);
+
+    app.world->people->hot.age[app.cast[0]] = 16;
+    app.world->people->hot.age[app.cast[1]] = 16;
+    app.world->people->hot.age[app.cast[2]] = 24;
+    app.world->people->hot.age[app.cast[3]] = 23;
+    app.world->people->hot.age[app.cast[4]] = 49;
+    app.world->people->hot.age[app.cast[5]] = 24;
+    app.world->people->hot.trait_flags[app.cast[2]] |= TRAIT_FLAG_MARRIED;
+    app.world->people->hot.trait_flags[app.cast[3]] |= TRAIT_FLAG_MARRIED;
+
+    relation_add(app.world->relations, app.cast[0], app.cast[4], REL_CATEGORY_FAMILY_PARENT_CHILD, REL_STATUS_NONE, 0, 0, 0);
+    relation_add(app.world->relations, app.cast[0], app.cast[1], REL_CATEGORY_NONE, REL_STATUS_BEST_FRIEND, 220, 5, 0);
+    relation_add(app.world->relations, app.cast[2], app.cast[5], REL_CATEGORY_NONE, REL_STATUS_FRIEND, 140, 10, 60);
+    relation_add(app.world->relations, app.cast[2], app.cast[3], REL_CATEGORY_NONE, REL_STATUS_SPOUSE, 180, 200, 150);
+
+    app.events = g_example_events;
+    app.event_count = g_example_event_count;
+    event_table_load(&app.arena, "build/events.bin", &app.events, &app.event_count);
+
+    app.renderer = NULL;
 
     const wchar_t CLASS_NAME[] = L"RawLifeWindowClass";
 
@@ -248,6 +351,16 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     );
 
     if (hwnd == NULL) {
+        arena_destroy(&app.arena);
+        return 1;
+    }
+
+    SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)&app);
+
+    app.renderer = renderer_create(hwnd);
+    if (app.renderer == NULL) {
+        printf("RawLife: renderer_create failed -- Direct2D/DirectWrite unavailable?\n");
+        arena_destroy(&app.arena);
         return 1;
     }
 
@@ -259,5 +372,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         DispatchMessageW(&msg);
     }
 
+    arena_destroy(&app.arena);
     return 0;
 }

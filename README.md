@@ -40,7 +40,10 @@ hardcoded C arrays to add content. Save/load is a flat binary dump/load of
 the person and relation pools plus RNG state and world year (see
 docs/lifesim_design_doc.md section 8). See sections 13-16 for how
 jobs/economy/skills/kink content extend this without engine changes.
-No rendering yet.
+The game now has a real window: Direct2D/DirectWrite render the current
+world state as text, and spacebar advances the simulation by a year live
+(src/render/renderer.h/c -- deliberately minimal so far, clear + text +
+filled rectangles, no layout system or interaction beyond one key yet).
 
 ## Building
 
@@ -84,5 +87,5 @@ docs/
 - [x] Multi-axis relationships (family category / mutable status / friendship-romance-lust scalars, existing-relationship-based partner search)
 - [x] Event compiler tool (DSL -> events.bin, replaces hardcoded g_example_events)
 - [x] Save/load
-- [ ] Direct2D rendering + basic UI
+- [x] Direct2D rendering + basic UI (text-only, spacebar advances a year)
 - [ ] First playable content pass
