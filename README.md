@@ -45,7 +45,13 @@ world state as text, and spacebar advances the simulation by a year live
 (src/render/renderer.h/c -- deliberately minimal so far, clear + text +
 filled rectangles, no layout system or interaction beyond one key yet).
 Each tick also records which events actually fired (WorldState.tick_log)
-so the window shows what just happened, not just updated numbers.
+so the window shows what just happened, not just updated numbers. The
+window is now player-centric: you're born at age 0 as a specific person
+(with two parents who exist in the world but aren't the focus) rather
+than watching a symmetric cast of NPCs -- no character creation or
+player choices yet (events still resolve automatically for the player
+exactly like any NPC), both natural next steps now that this foundation
+is in.
 
 ## Building
 
@@ -90,4 +96,9 @@ docs/
 - [x] Event compiler tool (DSL -> events.bin, replaces hardcoded g_example_events)
 - [x] Save/load
 - [x] Direct2D rendering + basic UI (text-only, spacebar advances a year)
+- [x] Player-centric model (one person born at age 0, two parents, distinguished in UI)
 - [ ] First playable content pass
+  - [ ] Character creation screen (name entry at minimum)
+  - [ ] Player choices during events (currently auto-resolved like any NPC)
+  - [ ] Expanded events.def content
+  - [ ] UI polish (currently plain text lines, no layout system)

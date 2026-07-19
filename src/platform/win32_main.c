@@ -200,16 +200,25 @@ static void sim_smoke_test(void) {
  * wWinMain (see below) whose address is stashed in the window's
  * GWLP_USERDATA slot -- safe because wWinMain's frame lives for the
  * entire message loop.
+ *
+ * This is the first player-centric pass: one person (player_id) is *the*
+ * character the game is about, born at age 0 this run, with two parents
+ * who exist in the world but aren't the focus. Previously the window
+ * showed six NPCs with equal weight, which isn't what a BitLife-style
+ * game actually is -- there's a "you," and everyone else orbits them.
+ * No character creation UI yet (name is fixed) and no player choices
+ * yet (events still resolve automatically for the player exactly like
+ * any NPC) -- both are natural next steps once this foundation is in.
  * --------------------------------------------------------------------- */
-
-#define CAST_SIZE 6
 
 typedef struct {
     Arena arena;
     WorldState* world;
     const EventDef* events;
     uint32_t event_count;
-    uint32_t cast[CAST_SIZE];
+    uint32_t player_id;
+    uint32_t mother_id;
+    uint32_t father_id;
     Renderer* renderer;
 } AppState;
 
@@ -225,10 +234,12 @@ static const char* find_event_name(const EventDef* events, uint32_t event_count,
 static void app_render_frame(AppState* app) {
     RenderColor bg = { 0.08f, 0.08f, 0.11f, 1.0f };
     RenderColor text_color = { 0.92f, 0.92f, 0.92f, 1.0f };
+    RenderColor player_color = { 1.0f, 0.85f, 0.35f, 1.0f };
     RenderColor log_color = { 0.65f, 0.85f, 1.0f, 1.0f };
 
     renderer_begin_frame(app->renderer, bg);
 
+    PersonPool* pool = app->world->people;
     wchar_t line[128];
     float y = 20.0f;
     const float line_height = 26.0f;
@@ -237,14 +248,22 @@ static void app_render_frame(AppState* app) {
     renderer_draw_text(app->renderer, 20.0f, y, 700.0f, line_height, line, text_color);
     y += line_height * 1.5f;
 
-    for (uint32_t i = 0; i < CAST_SIZE; i++) {
-        uint32_t id = app->cast[i];
-        PersonPool* pool = app->world->people;
-        wsprintfW(line, L"%hs   age=%u   loyalty=%u",
-                  pool->cold.name[id], pool->hot.age[id], pool->warm.loyalty[id]);
-        renderer_draw_text(app->renderer, 20.0f, y, 700.0f, line_height, line, text_color);
-        y += line_height;
-    }
+    wsprintfW(line, L"YOU: %hs   age=%u   loyalty=%u   charisma=%u",
+              pool->cold.name[app->player_id], pool->hot.age[app->player_id],
+              pool->warm.loyalty[app->player_id], pool->warm.charisma[app->player_id]);
+    renderer_draw_text(app->renderer, 20.0f, y, 700.0f, line_height, line, player_color);
+    y += line_height * 1.5f;
+
+    renderer_draw_text(app->renderer, 20.0f, y, 700.0f, line_height, L"Family:", text_color);
+    y += line_height;
+
+    wsprintfW(line, L"  %hs (mother)   age=%u", pool->cold.name[app->mother_id], pool->hot.age[app->mother_id]);
+    renderer_draw_text(app->renderer, 20.0f, y, 700.0f, line_height, line, text_color);
+    y += line_height;
+
+    wsprintfW(line, L"  %hs (father)   age=%u", pool->cold.name[app->father_id], pool->hot.age[app->father_id]);
+    renderer_draw_text(app->renderer, 20.0f, y, 700.0f, line_height, line, text_color);
+    y += line_height;
 
     y += line_height * 0.5f;
     renderer_draw_text(app->renderer, 20.0f, y, 700.0f, line_height, L"This year:", text_color);
@@ -254,7 +273,6 @@ static void app_render_frame(AppState* app) {
         renderer_draw_text(app->renderer, 40.0f, y, 700.0f, line_height, L"(nothing yet)", log_color);
         y += line_height;
     } else {
-        PersonPool* pool = app->world->people;
         for (uint32_t i = 0; i < app->world->tick_log_count; i++) {
             const EventLogEntry* entry = &app->world->tick_log[i];
             const char* event_name = find_event_name(app->events, app->event_count, entry->event_id);
@@ -340,26 +358,26 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         return 1;
     }
 
-    app.cast[0] = person_spawn(app.world->people, "Dave", SEX_MALE, 2008);
-    app.cast[1] = person_spawn(app.world->people, "Erin", SEX_FEMALE, 2008);
-    app.cast[2] = person_spawn(app.world->people, "Frank", SEX_MALE, 2000);
-    app.cast[3] = person_spawn(app.world->people, "Grace", SEX_FEMALE, 2001);
-    app.cast[4] = person_spawn(app.world->people, "Mary", SEX_FEMALE, 1975);
-    app.cast[5] = person_spawn(app.world->people, "Holly", SEX_FEMALE, 2000);
+    /* The player is born this run, at age 0 -- current year is 2026, so
+     * their birth year is set accordingly. No character creation UI yet,
+     * so the name is fixed; that's a natural next step once this
+     * player-centric foundation is in. */
+    app.player_id = person_spawn(app.world->people, "Alex", SEX_MALE, 2026);
+    app.mother_id = person_spawn(app.world->people, "Mary", SEX_FEMALE, 1996);
+    app.father_id = person_spawn(app.world->people, "Robert", SEX_MALE, 1994);
 
-    app.world->people->hot.age[app.cast[0]] = 16;
-    app.world->people->hot.age[app.cast[1]] = 16;
-    app.world->people->hot.age[app.cast[2]] = 24;
-    app.world->people->hot.age[app.cast[3]] = 23;
-    app.world->people->hot.age[app.cast[4]] = 49;
-    app.world->people->hot.age[app.cast[5]] = 24;
-    app.world->people->hot.trait_flags[app.cast[2]] |= TRAIT_FLAG_MARRIED;
-    app.world->people->hot.trait_flags[app.cast[3]] |= TRAIT_FLAG_MARRIED;
+    app.world->people->hot.age[app.player_id] = 0;
+    app.world->people->hot.age[app.mother_id] = 30;
+    app.world->people->hot.age[app.father_id] = 32;
+    app.world->people->hot.trait_flags[app.mother_id] |= TRAIT_FLAG_MARRIED;
+    app.world->people->hot.trait_flags[app.father_id] |= TRAIT_FLAG_MARRIED;
 
-    relation_add(app.world->relations, app.cast[0], app.cast[4], REL_CATEGORY_FAMILY_PARENT_CHILD, REL_STATUS_NONE, 0, 0, 0);
-    relation_add(app.world->relations, app.cast[0], app.cast[1], REL_CATEGORY_NONE, REL_STATUS_BEST_FRIEND, 220, 5, 0);
-    relation_add(app.world->relations, app.cast[2], app.cast[5], REL_CATEGORY_NONE, REL_STATUS_FRIEND, 140, 10, 60);
-    relation_add(app.world->relations, app.cast[2], app.cast[3], REL_CATEGORY_NONE, REL_STATUS_SPOUSE, 180, 200, 150);
+    relation_add(app.world->relations, app.player_id, app.mother_id,
+                 REL_CATEGORY_FAMILY_PARENT_CHILD, REL_STATUS_NONE, 0, 0, 0);
+    relation_add(app.world->relations, app.player_id, app.father_id,
+                 REL_CATEGORY_FAMILY_PARENT_CHILD, REL_STATUS_NONE, 0, 0, 0);
+    relation_add(app.world->relations, app.mother_id, app.father_id,
+                 REL_CATEGORY_NONE, REL_STATUS_SPOUSE, 180, 200, 150);
 
     app.events = g_example_events;
     app.event_count = g_example_event_count;
