@@ -28,6 +28,7 @@ WorldState* world_create(Arena* arena, uint64_t seed) {
 
     rng_seed(&world->rng, seed);
     world->year = 0;
+    world->tick_log_count = 0;
 
     return world;
 }
@@ -170,6 +171,16 @@ static uint32_t find_event_partner(WorldState* world, uint32_t initiator, const 
     return find_partner_any_population(world, initiator, event);
 }
 
+static void log_event(WorldState* world, uint32_t person_id, uint32_t partner_id, uint16_t event_id) {
+    if (world->tick_log_count >= MAX_TICK_LOG_ENTRIES) {
+        return; /* log full for this tick -- silently drop rather than overflow */
+    }
+    EventLogEntry* entry = &world->tick_log[world->tick_log_count++];
+    entry->person_id = person_id;
+    entry->partner_id = partner_id;
+    entry->event_id = event_id;
+}
+
 static void pass_resolve_events(WorldState* world, const EventDef* events, uint32_t event_count) {
     PersonPool* pool = world->people;
 
@@ -230,13 +241,18 @@ static void pass_resolve_events(WorldState* world, const EventDef* events, uint3
                              event->relation_friendship_delta,
                              event->relation_romance_delta,
                              event->relation_lust_delta);
+
+            log_event(world, i, partner, event->event_id);
         } else {
             event_apply(event, pool, i);
+            log_event(world, i, UINT32_MAX, event->event_id);
         }
     }
 }
 
 void world_tick_year(WorldState* world, const EventDef* events, uint32_t event_count) {
+    world->tick_log_count = 0;
+
     pass_age_up(world->people);
     pass_resolve_events(world, events, event_count);
 

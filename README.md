@@ -44,6 +44,8 @@ The game now has a real window: Direct2D/DirectWrite render the current
 world state as text, and spacebar advances the simulation by a year live
 (src/render/renderer.h/c -- deliberately minimal so far, clear + text +
 filled rectangles, no layout system or interaction beyond one key yet).
+Each tick also records which events actually fired (WorldState.tick_log)
+so the window shows what just happened, not just updated numbers.
 
 ## Building
 

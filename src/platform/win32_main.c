@@ -213,9 +213,19 @@ typedef struct {
     Renderer* renderer;
 } AppState;
 
+static const char* find_event_name(const EventDef* events, uint32_t event_count, uint16_t event_id) {
+    for (uint32_t i = 0; i < event_count; i++) {
+        if (events[i].event_id == event_id) {
+            return events[i].name;
+        }
+    }
+    return "(unknown event)";
+}
+
 static void app_render_frame(AppState* app) {
     RenderColor bg = { 0.08f, 0.08f, 0.11f, 1.0f };
     RenderColor text_color = { 0.92f, 0.92f, 0.92f, 1.0f };
+    RenderColor log_color = { 0.65f, 0.85f, 1.0f, 1.0f };
 
     renderer_begin_frame(app->renderer, bg);
 
@@ -234,6 +244,30 @@ static void app_render_frame(AppState* app) {
                   pool->cold.name[id], pool->hot.age[id], pool->warm.loyalty[id]);
         renderer_draw_text(app->renderer, 20.0f, y, 700.0f, line_height, line, text_color);
         y += line_height;
+    }
+
+    y += line_height * 0.5f;
+    renderer_draw_text(app->renderer, 20.0f, y, 700.0f, line_height, L"This year:", text_color);
+    y += line_height;
+
+    if (app->world->tick_log_count == 0) {
+        renderer_draw_text(app->renderer, 40.0f, y, 700.0f, line_height, L"(nothing yet)", log_color);
+        y += line_height;
+    } else {
+        PersonPool* pool = app->world->people;
+        for (uint32_t i = 0; i < app->world->tick_log_count; i++) {
+            const EventLogEntry* entry = &app->world->tick_log[i];
+            const char* event_name = find_event_name(app->events, app->event_count, entry->event_id);
+
+            if (entry->partner_id != UINT32_MAX) {
+                wsprintfW(line, L"%hs -- %hs & %hs",
+                          event_name, pool->cold.name[entry->person_id], pool->cold.name[entry->partner_id]);
+            } else {
+                wsprintfW(line, L"%hs -- %hs", event_name, pool->cold.name[entry->person_id]);
+            }
+            renderer_draw_text(app->renderer, 40.0f, y, 700.0f, line_height, line, log_color);
+            y += line_height;
+        }
     }
 
     if (!renderer_end_frame(app->renderer)) {
