@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "sim/arena.h"
 #include "sim/person.h"
 #include "sim/relation.h"
 #include "sim/traits.h"
@@ -15,18 +16,20 @@ typedef enum {
     PARTNER_SOURCE_EXISTING_RELATION,  /* search only the initiator's current relationship edges */
 } PartnerSource;
 
+#define EVENT_NAME_MAX_LEN 32
+
 /*
- * A life event. Fully data-describable -- once src/tools/event_compiler
- * exists, these will be authored in a human-readable DSL and compiled to
- * a flat binary loaded at startup, rather than hardcoded C arrays like
- * g_example_events below. The struct layout is the actual binary format,
- * so it stays a plain POD struct: no pointers except the debug-only name.
+ * A life event. Fully data-describable: authored in a human-readable DSL
+ * (see src/data/events.def) and compiled by src/tools/event_compiler into
+ * a flat binary loaded at startup via event_table_load(). This struct's
+ * layout IS the binary format, so it must stay a plain POD struct -- no
+ * pointers. `name` is a fixed-size array rather than `const char*` for
+ * exactly this reason: a pointer written to a save/data file is garbage
+ * the moment it's read back in a different process.
  */
 typedef struct {
     uint16_t event_id;
-    const char* name;              /* debug/placeholder only -- real content
-                                     * will reference a string table, not an
-                                     * embedded pointer, once compiled from data */
+    char     name[EVENT_NAME_MAX_LEN];
     uint8_t  min_age;
     uint8_t  max_age;
     uint32_t required_trait_mask;  /* PersonHot.trait_flags bits that must ALL be set */
@@ -100,13 +103,34 @@ void event_apply(const EventDef* event, PersonPool* pool, uint32_t person_id);
 void event_apply_partner(const EventDef* event, PersonPool* pool, uint32_t partner_id);
 
 /*
- * Placeholder hardcoded event table standing in for the real data-driven
- * table until the offline DSL compiler exists (see roadmap). Deliberately
- * includes an all-ages event, an 18+ gated event, and a loyalty-gated
- * event, to prove the eligibility mechanism end to end before real
- * content gets authored.
+ * Placeholder hardcoded event table standing in for real content. Kept
+ * around as a reference/test fixture even now that event_table_load()
+ * exists -- see src/data/events.def for the actual authorable content,
+ * compiled to events.bin by src/tools/event_compiler.
  */
 extern const EventDef g_example_events[];
 extern const uint32_t g_example_event_count;
+
+/* Binary event file format: a small header, then a flat array of
+ * EventDef. Written by src/tools/event_compiler, read by
+ * event_table_load below. */
+#define EVENT_FILE_MAGIC   0x56454C52u /* 'RLEV' */
+#define EVENT_FILE_VERSION 1u
+
+typedef struct {
+    uint32_t magic;
+    uint32_t version;
+    uint32_t event_count;
+} EventFileHeader;
+
+/*
+ * Loads a compiled event table from `path` (as produced by
+ * src/tools/event_compiler) into memory carved from `arena`. On success,
+ * *out_table points at an array of *out_count EventDefs and returns true.
+ * Returns false (leaving out_table and out_count untouched) if the file
+ * can't be opened, the header magic/version doesn't match, the arena
+ * doesn't have enough space, or a read fails partway through.
+ */
+bool event_table_load(Arena* arena, const char* path, const EventDef** out_table, uint32_t* out_count);
 
 #endif /* RAWLIFE_EVENT_H */

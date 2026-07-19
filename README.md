@@ -33,11 +33,14 @@ spouse, FWB, affair, ex...), which is independent from three separate
 0-255 scalars (friendship, romance, lust). Events can search for a
 partner fresh from the population OR among a person's existing
 relationships of a given status, and can transition that status/those
-scalars as a consequence. Save/load is a flat binary dump/load of the
-person and relation pools plus RNG state and world year (see
+scalars as a consequence. Event content is now authored in
+src/data/events.def (a small DSL) and compiled to build/events.bin by
+src/tools/event_compiler as part of every build -- no more editing
+hardcoded C arrays to add content. Save/load is a flat binary dump/load of
+the person and relation pools plus RNG state and world year (see
 docs/lifesim_design_doc.md section 8). See sections 13-16 for how
 jobs/economy/skills/kink content extend this without engine changes.
-No rendering or real content yet.
+No rendering yet.
 
 ## Building
 
@@ -79,7 +82,7 @@ docs/
 - [x] Relationship graph (family/social edges between NPCs)
 - [x] Multi-person events (partner search, dual consequences, relation edges)
 - [x] Multi-axis relationships (family category / mutable status / friendship-romance-lust scalars, existing-relationship-based partner search)
-- [ ] Event compiler tool (DSL -> events.bin, replaces hardcoded g_example_events)
+- [x] Event compiler tool (DSL -> events.bin, replaces hardcoded g_example_events)
 - [x] Save/load
 - [ ] Direct2D rendering + basic UI
 - [ ] First playable content pass

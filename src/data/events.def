@@ -1,0 +1,107 @@
+# RawLife event definitions.
+#
+# Compiled to a binary event table by src/tools/event_compiler, loaded by
+# the game at startup via event_table_load() (see src/sim/event.h/c).
+# This is the source of truth for event content going forward -- the
+# hardcoded g_example_events array in event.c is kept only as a reference/
+# test fixture, not what the game actually runs.
+#
+# Format: a series of `event ... end` blocks. Recognized keys:
+#
+#   id <int>                        unique event id
+#   name "<string>"                 display name (max 31 chars)
+#   min_age / max_age <int>         age range this event is eligible in
+#   weight <int>                    relative selection weight among eligible events
+#   required_trait <name>           (repeatable) trait_flags bit that must be set
+#   forbidden_trait <name>          (repeatable) trait_flags bit that must be clear
+#   trait_delta <trait> <int>       (repeatable) nudge a warm scalar trait
+#   flag_set / flag_clear <name>    (repeatable) trait_flags bits to set/clear
+#
+#   requires_partner true|false
+#   partner_source any_population|existing_relation
+#   partner_required_status <status>   (only used with existing_relation)
+#   partner_exclude_spouse true|false
+#   partner_min_age / partner_max_age <int>
+#   partner_required_trait / partner_forbidden_trait <name>  (repeatable)
+#   partner_trait_delta <trait> <int>  (repeatable)
+#   partner_flag_set / partner_flag_clear <name>  (repeatable)
+#
+#   sets_relation_status <status>|keep   ("keep" or simply omitting this
+#                                          line both mean "don't change it")
+#   relation_delta friendship|romance|lust <int>  (repeatable)
+#
+# Known trait names: loyalty, charisma, strength, beauty, intelligence, libido
+# Known flag names: loyal, criminal_record, wanted, married, employed
+# Known status names: none, acquaintance, friend, best_friend, rival, enemy,
+#                      dating, exclusive, fiance, spouse, fwb, affair, ex
+
+event
+  id 1
+  name "Made a new friend"
+  min_age 5
+  max_age 255
+  weight 100
+  trait_delta charisma 3
+end
+
+event
+  id 2
+  name "Caught shoplifting"
+  min_age 10
+  max_age 17
+  weight 15
+  forbidden_trait criminal_record
+  trait_delta intelligence -2
+  flag_set criminal_record
+end
+
+event
+  id 3
+  name "Committed robbery"
+  min_age 18
+  max_age 255
+  weight 10
+  forbidden_trait employed
+  trait_delta strength 1
+  flag_set criminal_record
+  flag_set wanted
+end
+
+event
+  id 4
+  name "Cheated on partner"
+  min_age 18
+  max_age 255
+  weight 8
+  required_trait married
+  forbidden_trait loyal
+  trait_delta loyalty -20
+  requires_partner true
+  partner_source any_population
+  partner_exclude_spouse true
+  partner_min_age 18
+  partner_max_age 255
+  partner_trait_delta libido 5
+  sets_relation_status affair
+  relation_delta friendship 5
+  relation_delta romance 10
+  relation_delta lust 40
+end
+
+event
+  id 5
+  name "Hooked up with a friend"
+  min_age 18
+  max_age 255
+  weight 12
+  forbidden_trait married
+  trait_delta libido 5
+  requires_partner true
+  partner_source existing_relation
+  partner_required_status friend
+  partner_min_age 18
+  partner_max_age 255
+  partner_trait_delta libido 5
+  sets_relation_status fwb
+  relation_delta lust 50
+end

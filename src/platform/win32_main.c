@@ -142,6 +142,20 @@ static void sim_smoke_test(void) {
 
     relation_add(world->relations, frank, grace, REL_CATEGORY_NONE, REL_STATUS_SPOUSE, 180, 200, 150);
 
+    /* Load the compiled event table (src/data/events.def -> build/events.bin
+     * via src/tools/event_compiler) instead of using the hardcoded
+     * g_example_events -- this is what actually drives the game now.
+     * Falls back to g_example_events if the compiled file is missing, so
+     * the smoke test still runs even before you've built events.bin. */
+    const EventDef* event_table = g_example_events;
+    uint32_t event_table_count = g_example_event_count;
+    if (event_table_load(&arena, "build/events.bin", &event_table, &event_table_count)) {
+        printf("RawLife: loaded %u event(s) from build/events.bin\n", event_table_count);
+    } else {
+        printf("RawLife: could not load build/events.bin, falling back to g_example_events "
+               "(%u events)\n", event_table_count);
+    }
+
     printf("RawLife: -- year 0 --\n");
     print_person(world, dave);
     print_person(world, erin);
@@ -151,7 +165,7 @@ static void sim_smoke_test(void) {
     print_person(world, holly);
 
     for (uint32_t y = 1; y <= 20; y++) {
-        world_tick_year(world, g_example_events, g_example_event_count);
+        world_tick_year(world, event_table, event_table_count);
         printf("RawLife: -- year %u --\n", world->year);
         print_person(world, dave);
         print_person(world, erin);

@@ -37,10 +37,14 @@ typedef enum {
  *
  * REL_STATUS_KEEP is a sentinel used only in EventDef (see event.h) to
  * mean "resolve this event without changing status" -- never stored on
- * an actual edge.
+ * an actual edge. Deliberately placed first (value 0) so that a
+ * hand-written EventDef or a compiled event.def entry that simply omits
+ * a status change defaults safely to "no change" rather than silently
+ * resetting the relationship to REL_STATUS_NONE.
  */
 typedef enum {
-    REL_STATUS_NONE = 0,
+    REL_STATUS_KEEP = 0,
+    REL_STATUS_NONE,
     REL_STATUS_ACQUAINTANCE,
     REL_STATUS_FRIEND,
     REL_STATUS_BEST_FRIEND,
@@ -54,7 +58,6 @@ typedef enum {
     REL_STATUS_AFFAIR,      /* the third party in an infidelity event, see event.c */
     REL_STATUS_EX,
     REL_STATUS_COUNT,
-    REL_STATUS_KEEP = 255,
 } RelationStatus;
 
 /*

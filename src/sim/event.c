@@ -1,5 +1,7 @@
 #include "sim/event.h"
 
+#include <stdio.h>
+
 static uint8_t clamp_add_i8(uint8_t base, int8_t delta) {
     int32_t v = (int32_t)base + delta;
     if (v < 0)   v = 0;
@@ -155,3 +157,35 @@ const EventDef g_example_events[] = {
 };
 
 const uint32_t g_example_event_count = sizeof(g_example_events) / sizeof(g_example_events[0]);
+
+bool event_table_load(Arena* arena, const char* path, const EventDef** out_table, uint32_t* out_count) {
+    FILE* f = fopen(path, "rb");
+    if (f == NULL) {
+        return false;
+    }
+
+    EventFileHeader header;
+    bool ok = fread(&header, sizeof(header), 1, f) == 1;
+
+    if (ok && header.magic != EVENT_FILE_MAGIC) {
+        ok = false; /* not a RawLife event file */
+    }
+    if (ok && header.version != EVENT_FILE_VERSION) {
+        ok = false; /* no migration path yet -- versions must match exactly */
+    }
+
+    EventDef* table = NULL;
+    if (ok) {
+        table = (EventDef*)arena_alloc(arena, sizeof(EventDef) * header.event_count, _Alignof(EventDef));
+        ok = (table != NULL) && (fread(table, sizeof(EventDef), header.event_count, f) == header.event_count);
+    }
+
+    fclose(f);
+    if (!ok) {
+        return false;
+    }
+
+    *out_table = table;
+    *out_count = header.event_count;
+    return true;
+}
