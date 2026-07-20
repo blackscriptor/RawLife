@@ -3,7 +3,9 @@
 #include <stdio.h>
 
 #define SAVE_MAGIC   0x4C574152u /* 'RAWL' -- little-endian on x86, fine for a Windows-only target */
-#define SAVE_VERSION 1u
+#define SAVE_VERSION 2u /* v2: PersonCold.name split into first_name/last_name --
+                          * old v1 saves have a different PersonPool byte layout
+                          * and must be rejected, not silently misread */
 
 typedef struct {
     uint32_t magic;

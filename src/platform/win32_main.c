@@ -58,8 +58,11 @@ static void print_person(const WorldState* world, uint32_t id) {
     const PersonPool* pool = world->people;
     uint32_t flags = pool->hot.trait_flags[id];
 
-    printf("  %-6s age=%3u loyalty=%3u  [%s%s%s%s%s]\n",
-           pool->cold.name[id],
+    char full_name[64];
+    person_get_full_name(pool, id, full_name, sizeof(full_name));
+
+    printf("  %-16s age=%3u loyalty=%3u  [%s%s%s%s%s]\n",
+           full_name,
            pool->hot.age[id],
            pool->warm.loyalty[id],
            (flags & TRAIT_FLAG_LOYAL) ? "LOYAL " : "",
@@ -80,10 +83,13 @@ static void print_person(const WorldState* world, uint32_t id) {
             cat_suffix[0] = '\0';
         }
 
-        printf("      -> %s%s with %-6s  friendship=%3u romance=%3u lust=%3u\n",
+        char other_name[64];
+        person_get_full_name(pool, edge->other_id, other_name, sizeof(other_name));
+
+        printf("      -> %s%s with %-16s  friendship=%3u romance=%3u lust=%3u\n",
                status_name(edge->status),
                cat_suffix,
-               pool->cold.name[edge->other_id],
+               other_name,
                edge->friendship, edge->romance, edge->lust);
     }
 }
@@ -102,12 +108,16 @@ static void sim_smoke_test(void) {
         return;
     }
 
-    uint32_t dave  = person_spawn(world->people, "Dave", SEX_MALE, 2008);
-    uint32_t erin  = person_spawn(world->people, "Erin", SEX_FEMALE, 2008);
-    uint32_t frank = person_spawn(world->people, "Frank", SEX_MALE, 2000);
-    uint32_t grace = person_spawn(world->people, "Grace", SEX_FEMALE, 2001);
-    uint32_t mary  = person_spawn(world->people, "Mary", SEX_FEMALE, 1975);
-    uint32_t holly = person_spawn(world->people, "Holly", SEX_FEMALE, 2000);
+    /* Dave and Mary share a surname (parent/child); Frank and Grace share
+     * one too (already married when the scenario starts -- the marriage
+     * itself isn't simulated, just their resulting shared state). Erin
+     * and Holly are unrelated to either family. */
+    uint32_t dave  = person_spawn(world->people, "Dave", "Miller", SEX_MALE, 2008);
+    uint32_t erin  = person_spawn(world->people, "Erin", "Chen", SEX_FEMALE, 2008);
+    uint32_t frank = person_spawn(world->people, "Frank", "Johnson", SEX_MALE, 2000);
+    uint32_t grace = person_spawn(world->people, "Grace", "Johnson", SEX_FEMALE, 2001);
+    uint32_t mary  = person_spawn(world->people, "Mary", "Miller", SEX_FEMALE, 1975);
+    uint32_t holly = person_spawn(world->people, "Holly", "Bennett", SEX_FEMALE, 2000);
 
     world->people->hot.age[dave] = 16;
     world->people->hot.age[erin] = 16;
@@ -160,9 +170,10 @@ static void sim_smoke_test(void) {
         for (uint8_t e = 0; e < edge_count; e++) {
             const RelationEdge* edge = &world->relations->edges[id][e];
             if (edge->status == REL_STATUS_AFFAIR || edge->status == REL_STATUS_FWB) {
-                printf("  %s -> %s status changed to %s\n",
-                       world->people->cold.name[id], world->people->cold.name[edge->other_id],
-                       status_name(edge->status));
+                char name_a[64], name_b[64];
+                person_get_full_name(world->people, id, name_a, sizeof(name_a));
+                person_get_full_name(world->people, edge->other_id, name_b, sizeof(name_b));
+                printf("  %s -> %s status changed to %s\n", name_a, name_b, status_name(edge->status));
             }
         }
     }
@@ -215,7 +226,7 @@ typedef enum {
     SCREEN_GAME,
 } AppScreen;
 
-#define NAME_BUFFER_MAX 31 /* leaves room for the NUL, matches PersonCold's MAX_NAME_LEN - 1 */
+#define NAME_BUFFER_MAX 31 /* leaves room for the NUL, matches PersonCold's FIRST_NAME_MAX_LEN - 1 */
 
 typedef struct {
     Arena arena;
@@ -254,7 +265,7 @@ static void render_character_creation(AppState* app) {
     renderer_draw_text(app->renderer, 20.0f, y, 700.0f, line_height, L"RawLife", text_color);
     y += line_height * 2.0f;
 
-    renderer_draw_text(app->renderer, 20.0f, y, 700.0f, line_height, L"What's your name?", text_color);
+    renderer_draw_text(app->renderer, 20.0f, y, 700.0f, line_height, L"What's your first name?", text_color);
     y += line_height * 1.5f;
 
     /* Trailing underscore stands in for a text cursor -- no blink timer
@@ -300,8 +311,13 @@ static void app_render_frame(AppState* app) {
     renderer_draw_text(app->renderer, 20.0f, y, 700.0f, line_height, line, text_color);
     y += line_height * 1.5f;
 
+    char player_full_name[64], mother_full_name[64], father_full_name[64];
+    person_get_full_name(pool, app->player_id, player_full_name, sizeof(player_full_name));
+    person_get_full_name(pool, app->mother_id, mother_full_name, sizeof(mother_full_name));
+    person_get_full_name(pool, app->father_id, father_full_name, sizeof(father_full_name));
+
     wsprintfW(line, L"YOU: %hs   age=%u   loyalty=%u   charisma=%u",
-              pool->cold.name[app->player_id], pool->hot.age[app->player_id],
+              player_full_name, pool->hot.age[app->player_id],
               pool->warm.loyalty[app->player_id], pool->warm.charisma[app->player_id]);
     renderer_draw_text(app->renderer, 20.0f, y, 700.0f, line_height, line, player_color);
     y += line_height * 1.5f;
@@ -309,11 +325,11 @@ static void app_render_frame(AppState* app) {
     renderer_draw_text(app->renderer, 20.0f, y, 700.0f, line_height, L"Family:", text_color);
     y += line_height;
 
-    wsprintfW(line, L"  %hs (mother)   age=%u", pool->cold.name[app->mother_id], pool->hot.age[app->mother_id]);
+    wsprintfW(line, L"  %hs (mother)   age=%u", mother_full_name, pool->hot.age[app->mother_id]);
     renderer_draw_text(app->renderer, 20.0f, y, 700.0f, line_height, line, text_color);
     y += line_height;
 
-    wsprintfW(line, L"  %hs (father)   age=%u", pool->cold.name[app->father_id], pool->hot.age[app->father_id]);
+    wsprintfW(line, L"  %hs (father)   age=%u", father_full_name, pool->hot.age[app->father_id]);
     renderer_draw_text(app->renderer, 20.0f, y, 700.0f, line_height, line, text_color);
     y += line_height;
 
@@ -347,14 +363,18 @@ static void app_render_frame(AppState* app) {
                 bool has_choice = (ev != NULL) && entry->choice_index != NO_CHOICE_MADE
                                    && entry->choice_index < ev->choice_count;
 
+                char person_full_name[64];
+                person_get_full_name(pool, entry->person_id, person_full_name, sizeof(person_full_name));
+
                 if (has_choice) {
                     const char* choice_label = ev->choices[entry->choice_index].label;
-                    wsprintfW(line, L"%hs (%hs) -- %hs", event_name, choice_label, pool->cold.name[entry->person_id]);
+                    wsprintfW(line, L"%hs (%hs) -- %hs", event_name, choice_label, person_full_name);
                 } else if (entry->partner_id != UINT32_MAX) {
-                    wsprintfW(line, L"%hs -- %hs & %hs",
-                              event_name, pool->cold.name[entry->person_id], pool->cold.name[entry->partner_id]);
+                    char partner_full_name[64];
+                    person_get_full_name(pool, entry->partner_id, partner_full_name, sizeof(partner_full_name));
+                    wsprintfW(line, L"%hs -- %hs & %hs", event_name, person_full_name, partner_full_name);
                 } else {
-                    wsprintfW(line, L"%hs -- %hs", event_name, pool->cold.name[entry->person_id]);
+                    wsprintfW(line, L"%hs -- %hs", event_name, person_full_name);
                 }
                 renderer_draw_text(app->renderer, 40.0f, y, 700.0f, line_height, line, log_color);
                 y += line_height;
@@ -371,24 +391,42 @@ static void app_render_frame(AppState* app) {
 }
 
 /*
- * Spawns the player (using whatever name was entered on the character
- * creation screen) plus two parents, sets up the starting family
- * relationships, loads the event table, and switches to SCREEN_GAME.
- * Called once, when the player confirms their name with Enter.
+ * Fixed family surname for now -- no character-creation UI for choosing
+ * a last name yet, and no regional name-pool system (see
+ * docs/lifesim_design_doc.md section 17) to draw one from. All three
+ * starting family members share it, matching the rule that a child's
+ * surname is inherited from their parents and spouses already share one
+ * by the time the game starts (the marriage itself isn't simulated).
+ */
+#define STARTING_FAMILY_SURNAME "Reeves"
+
+/*
+ * Spawns the player (using whatever first name was entered on the
+ * character creation screen) plus two parents, sets up the starting
+ * family relationships, loads the event table, and switches to
+ * SCREEN_GAME. Called once, when the player confirms their name with
+ * Enter.
+ *
+ * Surname rule: the player's last name matches both parents' -- it's
+ * inherited, not chosen. Marriage will eventually be able to change a
+ * person's last name (taking a spouse's name, combining both, or
+ * reverting on divorce), but that's not implemented yet; see the
+ * last_name field comment in sim/person.h.
  */
 static void begin_game(AppState* app) {
-    char player_name[128];
+    char player_first_name[128];
     int converted = WideCharToMultiByte(CP_UTF8, 0, app->name_buffer, -1,
-                                         player_name, sizeof(player_name), NULL, NULL);
+                                         player_first_name, sizeof(player_first_name), NULL, NULL);
     if (converted <= 0) {
-        strcpy(player_name, "Player"); /* conversion failed -- fall back rather than spawn with garbage */
+        strcpy(player_first_name, "Player"); /* conversion failed -- fall back rather than spawn with garbage */
     }
 
     /* Current year is 2026, so a person born at age 0 this run has that
      * birth year. */
-    app->player_id = person_spawn(app->world->people, player_name, SEX_MALE, 2026);
-    app->mother_id = person_spawn(app->world->people, "Mary", SEX_FEMALE, 1996);
-    app->father_id = person_spawn(app->world->people, "Robert", SEX_MALE, 1994);
+    app->player_id = person_spawn(app->world->people, player_first_name, STARTING_FAMILY_SURNAME,
+                                   SEX_MALE, 2026);
+    app->mother_id = person_spawn(app->world->people, "Mary", STARTING_FAMILY_SURNAME, SEX_FEMALE, 1996);
+    app->father_id = person_spawn(app->world->people, "Robert", STARTING_FAMILY_SURNAME, SEX_MALE, 1994);
 
     app->world->people->hot.age[app->player_id] = 0;
     app->world->people->hot.age[app->mother_id] = 30;

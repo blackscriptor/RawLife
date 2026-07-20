@@ -1,5 +1,6 @@
 #include "sim/person.h"
 
+#include <stdio.h>
 #include <string.h>
 
 static void set_alive_bit(PersonHot* hot, uint32_t id, bool alive) {
@@ -33,7 +34,8 @@ bool person_is_alive(const PersonPool* pool, uint32_t id) {
     return (pool->hot.alive_bits[byte] & mask) != 0;
 }
 
-uint32_t person_spawn(PersonPool* pool, const char* name, uint8_t sex, uint32_t birth_year) {
+uint32_t person_spawn(PersonPool* pool, const char* first_name, const char* last_name,
+                       uint8_t sex, uint32_t birth_year) {
     uint32_t id;
 
     if (pool->free_count > 0) {
@@ -59,16 +61,26 @@ uint32_t person_spawn(PersonPool* pool, const char* name, uint8_t sex, uint32_t 
     pool->warm.libido[id] = 128;
     pool->warm.kink_mask[id] = 0;
 
-    if (name != NULL) {
-        strncpy(pool->cold.name[id], name, MAX_NAME_LEN - 1);
-        pool->cold.name[id][MAX_NAME_LEN - 1] = '\0';
+    if (first_name != NULL) {
+        strncpy(pool->cold.first_name[id], first_name, FIRST_NAME_MAX_LEN - 1);
+        pool->cold.first_name[id][FIRST_NAME_MAX_LEN - 1] = '\0';
     } else {
-        pool->cold.name[id][0] = '\0';
+        pool->cold.first_name[id][0] = '\0';
+    }
+    if (last_name != NULL) {
+        strncpy(pool->cold.last_name[id], last_name, LAST_NAME_MAX_LEN - 1);
+        pool->cold.last_name[id][LAST_NAME_MAX_LEN - 1] = '\0';
+    } else {
+        pool->cold.last_name[id][0] = '\0';
     }
     pool->cold.family_id[id] = 0;
     pool->cold.birth_year[id] = birth_year;
 
     return id;
+}
+
+void person_get_full_name(const PersonPool* pool, uint32_t id, char* out, size_t out_size) {
+    snprintf(out, out_size, "%s %s", pool->cold.first_name[id], pool->cold.last_name[id]);
 }
 
 void person_kill(PersonPool* pool, uint32_t id) {

@@ -98,7 +98,10 @@ docs/
 - [x] Direct2D rendering + basic UI (text-only, spacebar advances a year)
 - [x] Player-centric model (one person born at age 0, two parents, distinguished in UI)
 - [ ] First playable content pass
-  - [x] Character creation screen (name entry via keyboard, ENTER to begin)
+  - [x] Character creation screen (first name entry via keyboard, ENTER to begin) --
+        last name is inherited from parents (both parents share one, fixed for now),
+        not typed. See docs/lifesim_design_doc.md section 12 for the deferred
+        marriage-driven surname change system this sets up for.
   - [x] Player choices during events -- the event fires on its own (same weighted
         selection as NPCs use), and if it has choices, the player picks the REACTION
         (e.g. vaccination happens; stay calm / cry / bite the nurse), not which event

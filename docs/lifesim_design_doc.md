@@ -291,6 +291,7 @@ Keeping `/sim` free of any rendering or platform calls means the simulation can 
 - UI wireframe / screen flow (life stages, stat screens, relationship views).
 - Birth/family-tree mechanics in detail (how partner selection and inheritance of traits works).
 - Whether to support user-authored/moddable event packs (the binary-compiled format makes this possible later, but needs a defined external format if so).
+- Marriage-driven surname changes: `PersonCold.last_name` is already a separate field from `first_name` specifically so this is possible without another data restructure. Not implemented yet -- when the (also not-yet-implemented) marriage system lands, it should be able to update `last_name` for one or both spouses (one takes the other's, both combine/hyphenate, or neither changes), and revert it on divorce. This is a small, contained addition once marriage exists: a person's `last_name` array entry gets overwritten, nothing else about their identity (their `id`, their existing relationship edges) needs to change.
 
 ---
 
