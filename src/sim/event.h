@@ -17,6 +17,22 @@ typedef enum {
 } PartnerSource;
 
 #define EVENT_NAME_MAX_LEN 32
+#define MAX_EVENT_CHOICES  4
+
+/*
+ * One possible reaction to an event that has already happened. Applied
+ * instead of the event's top-level trait_deltas/flag_set/flag_clear when
+ * the event has choice_count > 0. `weight` is used for NPC auto-
+ * resolution (a weighted-random pick among choices, same mechanism as
+ * event selection itself) -- the player instead picks explicitly.
+ */
+typedef struct {
+    char     label[EVENT_NAME_MAX_LEN]; /* e.g. "Stay calm", "Bite the nurse" */
+    int8_t   trait_deltas[TRAIT_COUNT];
+    uint32_t flag_set;
+    uint32_t flag_clear;
+    uint16_t weight;
+} EventChoice;
 
 /*
  * A life event. Fully data-describable: authored in a human-readable DSL
@@ -26,6 +42,16 @@ typedef enum {
  * pointers. `name` is a fixed-size array rather than `const char*` for
  * exactly this reason: a pointer written to a save/data file is garbage
  * the moment it's read back in a different process.
+ *
+ * IMPORTANT: an event's occurrence is never something the player picks --
+ * WHICH event happens is decided by the same weighted-random selection
+ * used for every NPC (see world_tick_year). What the player controls is
+ * HOW they react, if and only if the event that occurred has choices
+ * (choice_count > 0) -- e.g. mum takes you for a vaccination (the event
+ * fires on its own), and you choose whether to stay calm, cry, or bite
+ * the nurse (the choice). Events with choice_count == 0 have exactly one
+ * possible outcome and resolve immediately with no player input, for
+ * player and NPCs alike.
  */
 typedef struct {
     uint16_t event_id;
@@ -35,9 +61,19 @@ typedef struct {
     uint32_t required_trait_mask;  /* PersonHot.trait_flags bits that must ALL be set */
     uint32_t forbidden_trait_mask; /* PersonHot.trait_flags bits that must ALL be clear */
     uint16_t weight_base;          /* relative selection weight among eligible events */
+
+    /* Used when choice_count == 0 -- the event's one and only outcome. */
     int8_t   trait_deltas[TRAIT_COUNT]; /* indexed by WarmTraitId, applied on resolution */
     uint32_t flag_set;             /* trait_flags bits to set on resolution */
     uint32_t flag_clear;           /* trait_flags bits to clear on resolution */
+
+    /* Used when choice_count > 0 instead of the fields above -- see the
+     * struct-level comment. Choice-bearing events are currently limited
+     * to requires_partner == 0 (combining a searched-for second
+     * participant with player-chosen reactions is deferred; see
+     * world.c). */
+    uint8_t     choice_count;
+    EventChoice choices[MAX_EVENT_CHOICES];
 
     /*
      * Multi-person events (e.g. an affair) need a second participant.
@@ -93,6 +129,14 @@ bool event_eligible(const EventDef* event, uint8_t age, uint32_t trait_flags);
  * the 0-255 fixed-point range.
  */
 void event_apply(const EventDef* event, PersonPool* pool, uint32_t person_id);
+
+/*
+ * Applies one specific choice's consequences to a person -- used instead
+ * of event_apply when the event has choice_count > 0. Same clamped-delta
+ * mechanics, just reading from the chosen EventChoice instead of the
+ * event's top-level fields.
+ */
+void event_apply_choice(const EventChoice* choice, PersonPool* pool, uint32_t person_id);
 
 /*
  * Same as event_apply, but for the second participant in a multi-person

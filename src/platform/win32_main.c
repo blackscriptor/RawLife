@@ -222,13 +222,13 @@ typedef struct {
     Renderer* renderer;
 } AppState;
 
-static const char* find_event_name(const EventDef* events, uint32_t event_count, uint16_t event_id) {
+static const EventDef* find_event_by_id(const EventDef* events, uint32_t event_count, uint16_t event_id) {
     for (uint32_t i = 0; i < event_count; i++) {
         if (events[i].event_id == event_id) {
-            return events[i].name;
+            return &events[i];
         }
     }
-    return "(unknown event)";
+    return NULL;
 }
 
 static void app_render_frame(AppState* app) {
@@ -274,13 +274,15 @@ static void app_render_frame(AppState* app) {
     y += line_height * 0.5f;
 
     if (pending) {
-        renderer_draw_text(app->renderer, 20.0f, y, 700.0f, line_height, L"What do you do?", text_color);
+        const EventDef* pending_event = &app->events[app->world->player_pending_event_index];
+
+        wchar_t header[128];
+        wsprintfW(header, L"%hs!", pending_event->name);
+        renderer_draw_text(app->renderer, 20.0f, y, 700.0f, line_height, header, text_color);
         y += line_height;
 
-        for (uint32_t i = 0; i < app->world->player_choice_option_count; i++) {
-            uint32_t event_index = app->world->player_choice_options[i];
-            const char* event_name = app->events[event_index].name;
-            wsprintfW(line, L"  [%u] %hs", i + 1, event_name);
+        for (uint32_t i = 0; i < pending_event->choice_count; i++) {
+            wsprintfW(line, L"  [%u] %hs", i + 1, pending_event->choices[i].label);
             renderer_draw_text(app->renderer, 40.0f, y, 700.0f, line_height, line, choice_color);
             y += line_height;
         }
@@ -294,9 +296,15 @@ static void app_render_frame(AppState* app) {
         } else {
             for (uint32_t i = 0; i < app->world->tick_log_count; i++) {
                 const EventLogEntry* entry = &app->world->tick_log[i];
-                const char* event_name = find_event_name(app->events, app->event_count, entry->event_id);
+                const EventDef* ev = find_event_by_id(app->events, app->event_count, entry->event_id);
+                const char* event_name = (ev != NULL) ? ev->name : "(unknown event)";
+                bool has_choice = (ev != NULL) && entry->choice_index != NO_CHOICE_MADE
+                                   && entry->choice_index < ev->choice_count;
 
-                if (entry->partner_id != UINT32_MAX) {
+                if (has_choice) {
+                    const char* choice_label = ev->choices[entry->choice_index].label;
+                    wsprintfW(line, L"%hs (%hs) -- %hs", event_name, choice_label, pool->cold.name[entry->person_id]);
+                } else if (entry->partner_id != UINT32_MAX) {
                     wsprintfW(line, L"%hs -- %hs & %hs",
                               event_name, pool->cold.name[entry->person_id], pool->cold.name[entry->partner_id]);
                 } else {
@@ -343,9 +351,10 @@ static LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
             if (app != NULL) {
                 if (app->world->player_has_pending_choice) {
                     if (wparam >= '1' && wparam <= '9') {
-                        uint32_t option_index = (uint32_t)(wparam - '1');
-                        if (option_index < app->world->player_choice_option_count) {
-                            world_apply_player_choice(app->world, app->events, app->event_count, option_index);
+                        uint32_t choice_index = (uint32_t)(wparam - '1');
+                        const EventDef* pending_event = &app->events[app->world->player_pending_event_index];
+                        if (choice_index < pending_event->choice_count) {
+                            world_apply_player_choice(app->world, app->events, app->event_count, choice_index);
                             InvalidateRect(hwnd, NULL, FALSE);
                         }
                     } else if (wparam == 'S') {

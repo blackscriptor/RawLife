@@ -99,7 +99,10 @@ docs/
 - [x] Player-centric model (one person born at age 0, two parents, distinguished in UI)
 - [ ] First playable content pass
   - [ ] Character creation screen (name entry at minimum)
-  - [x] Player choices during events (up to 4 options staged, number keys choose, S skips)
+  - [x] Player choices during events -- the event fires on its own (same weighted
+        selection as NPCs use), and if it has choices, the player picks the REACTION
+        (e.g. vaccination happens; stay calm / cry / bite the nurse), not which event
+        occurs. NPCs auto-pick a reaction via each choice's own weight.
   - [ ] Expanded events.def content
   - [ ] UI polish (currently plain text lines, no layout system)
 - [ ] Countries/cities (regional event weighting + name pools) -- design documented in

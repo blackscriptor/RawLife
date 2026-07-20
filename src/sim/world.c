@@ -32,7 +32,7 @@ WorldState* world_create(Arena* arena, uint64_t seed) {
 
     world->player_id = UINT32_MAX;
     world->player_has_pending_choice = false;
-    world->player_choice_option_count = 0;
+    world->player_pending_event_index = 0;
 
     return world;
 }
@@ -175,23 +175,8 @@ static uint32_t find_event_partner(WorldState* world, uint32_t initiator, const 
     return find_partner_any_population(world, initiator, event);
 }
 
-/*
- * Partial Fisher-Yates: randomly shuffles the first min(k, n) positions
- * of `array` (length n) into a uniform sample without replacement of the
- * whole array. Used to pick which eligible events to offer the player as
- * choices when there are more eligible events than option slots.
- */
-static void partial_shuffle(Rng* rng, uint32_t* array, uint32_t n, uint32_t k) {
-    uint32_t limit = (k < n) ? k : n;
-    for (uint32_t i = 0; i < limit; i++) {
-        uint32_t j = i + (uint32_t)(rng_next(rng) % (n - i));
-        uint32_t tmp = array[i];
-        array[i] = array[j];
-        array[j] = tmp;
-    }
-}
-
-static void log_event(WorldState* world, uint32_t person_id, uint32_t partner_id, uint16_t event_id) {
+static void log_event(WorldState* world, uint32_t person_id, uint32_t partner_id, uint16_t event_id,
+                       uint8_t choice_index) {
     if (world->tick_log_count >= MAX_TICK_LOG_ENTRIES) {
         return; /* log full for this tick -- silently drop rather than overflow */
     }
@@ -199,6 +184,76 @@ static void log_event(WorldState* world, uint32_t person_id, uint32_t partner_id
     entry->person_id = person_id;
     entry->partner_id = partner_id;
     entry->event_id = event_id;
+    entry->choice_index = choice_index;
+}
+
+/*
+ * Weighted-random pick among an event's choices, using each choice's own
+ * `weight` -- the same mechanism as event selection itself, just one
+ * level down. Falls back to a uniform pick if no choice has a nonzero
+ * weight (e.g. content that hasn't been tuned yet). Used for NPC
+ * auto-resolution of choice-bearing events -- the player picks
+ * explicitly instead, via world_apply_player_choice.
+ */
+static uint32_t pick_weighted_choice(Rng* rng, const EventChoice* choices, uint8_t choice_count) {
+    uint32_t total_weight = 0;
+    for (uint8_t i = 0; i < choice_count; i++) {
+        total_weight += choices[i].weight;
+    }
+    if (total_weight == 0) {
+        return (uint32_t)(rng_next(rng) % choice_count);
+    }
+    uint32_t roll = (uint32_t)(rng_next(rng) % total_weight);
+    uint32_t cumulative = 0;
+    for (uint8_t i = 0; i < choice_count; i++) {
+        cumulative += choices[i].weight;
+        if (roll < cumulative) {
+            return i;
+        }
+    }
+    return choice_count - 1; /* unreachable if total_weight > 0, kept for safety */
+}
+
+/*
+ * Resolves an already-selected event for `person_id` immediately: partner
+ * search if required, then either the event's single outcome
+ * (choice_count == 0) or an auto-picked weighted choice (choice_count >
+ * 0). Used for every NPC, and for the player when the selected event has
+ * no choices to pause on. Choice-bearing events are currently limited to
+ * requires_partner == 0 -- combining a searched-for second participant
+ * with player-chosen reactions is deferred, see event.h.
+ */
+static void resolve_event_immediately(WorldState* world, uint32_t person_id, const EventDef* event) {
+    PersonPool* pool = world->people;
+
+    if (event->requires_partner) {
+        uint32_t partner = find_event_partner(world, person_id, event);
+        if (partner == UINT32_MAX) {
+            return; /* no valid partner this year -- event doesn't fire */
+        }
+
+        event_apply(event, pool, person_id);
+        event_apply_partner(event, pool, partner);
+
+        relation_upsert(world->relations, person_id, partner,
+                         (RelationStatus)event->sets_relation_status,
+                         event->relation_friendship_delta,
+                         event->relation_romance_delta,
+                         event->relation_lust_delta);
+
+        log_event(world, person_id, partner, event->event_id, NO_CHOICE_MADE);
+        return;
+    }
+
+    if (event->choice_count == 0) {
+        event_apply(event, pool, person_id);
+        log_event(world, person_id, UINT32_MAX, event->event_id, NO_CHOICE_MADE);
+        return;
+    }
+
+    uint32_t choice_index = pick_weighted_choice(&world->rng, event->choices, event->choice_count);
+    event_apply_choice(&event->choices[choice_index], pool, person_id);
+    log_event(world, person_id, UINT32_MAX, event->event_id, (uint8_t)choice_index);
 }
 
 static void pass_resolve_events(WorldState* world, const EventDef* events, uint32_t event_count) {
@@ -234,23 +289,8 @@ static void pass_resolve_events(WorldState* world, const EventDef* events, uint3
             continue; /* nothing eligible this year for this person */
         }
 
-        if (i == world->player_id) {
-            /* Stage a choice instead of auto-resolving -- see
-             * world_apply_player_choice/world_skip_player_choice.
-             * eligible_ids is about to be reused by the next person's
-             * iteration, so copy out of it now rather than referencing
-             * it later. */
-            partial_shuffle(&world->rng, eligible_ids, eligible_count, MAX_PLAYER_CHOICE_OPTIONS);
-            uint32_t option_count = (eligible_count < MAX_PLAYER_CHOICE_OPTIONS)
-                ? eligible_count : MAX_PLAYER_CHOICE_OPTIONS;
-            for (uint32_t o = 0; o < option_count; o++) {
-                world->player_choice_options[o] = eligible_ids[o];
-            }
-            world->player_choice_option_count = option_count;
-            world->player_has_pending_choice = true;
-            continue;
-        }
-
+        /* WHICH event happens is decided here, identically for the
+         * player and every NPC -- nobody picks their own circumstances. */
         uint32_t roll = (uint32_t)(rng_next(&world->rng) % total_weight);
         uint32_t chosen = eligible_ids[0];
         uint32_t cumulative = 0;
@@ -264,33 +304,21 @@ static void pass_resolve_events(WorldState* world, const EventDef* events, uint3
 
         const EventDef* event = &events[chosen];
 
-        if (event->requires_partner) {
-            uint32_t partner = find_event_partner(world, i, event);
-            if (partner == UINT32_MAX) {
-                continue; /* no valid partner this year -- event doesn't fire */
-            }
-
-            event_apply(event, pool, i);
-            event_apply_partner(event, pool, partner);
-
-            relation_upsert(world->relations, i, partner,
-                             (RelationStatus)event->sets_relation_status,
-                             event->relation_friendship_delta,
-                             event->relation_romance_delta,
-                             event->relation_lust_delta);
-
-            log_event(world, i, partner, event->event_id);
-        } else {
-            event_apply(event, pool, i);
-            log_event(world, i, UINT32_MAX, event->event_id);
+        if (i == world->player_id && event->choice_count > 0 && !event->requires_partner) {
+            /* The event fired, but how the player reacts is their call --
+             * pause instead of auto-picking. */
+            world->player_pending_event_index = chosen;
+            world->player_has_pending_choice = true;
+            continue;
         }
+
+        resolve_event_immediately(world, i, event);
     }
 }
 
 void world_tick_year(WorldState* world, const EventDef* events, uint32_t event_count) {
     world->tick_log_count = 0;
     world->player_has_pending_choice = false;
-    world->player_choice_option_count = 0;
 
     pass_age_up(world->people);
     pass_resolve_events(world, events, event_count);
@@ -304,44 +332,22 @@ void world_set_player(WorldState* world, uint32_t player_id) {
 }
 
 void world_apply_player_choice(WorldState* world, const EventDef* events, uint32_t event_count,
-                                uint32_t option_index) {
-    (void)event_count; /* not needed directly -- player_choice_options already holds valid indices */
-
-    if (!world->player_has_pending_choice || option_index >= world->player_choice_option_count) {
+                                uint32_t choice_index) {
+    if (!world->player_has_pending_choice || world->player_pending_event_index >= event_count) {
         return;
     }
 
-    const EventDef* event = &events[world->player_choice_options[option_index]];
-    uint32_t player_id = world->player_id;
-
-    if (event->requires_partner) {
-        uint32_t partner = find_event_partner(world, player_id, event);
-        if (partner != UINT32_MAX) {
-            event_apply(event, world->people, player_id);
-            event_apply_partner(event, world->people, partner);
-
-            relation_upsert(world->relations, player_id, partner,
-                             (RelationStatus)event->sets_relation_status,
-                             event->relation_friendship_delta,
-                             event->relation_romance_delta,
-                             event->relation_lust_delta);
-
-            log_event(world, player_id, partner, event->event_id);
-        }
-        /* If no valid partner turned up between staging the choice and
-         * applying it (population changed in between -- currently can't
-         * happen within a single tick, but kept as a safe no-op rather
-         * than an assumption), the choice quietly does nothing. */
-    } else {
-        event_apply(event, world->people, player_id);
-        log_event(world, player_id, UINT32_MAX, event->event_id);
+    const EventDef* event = &events[world->player_pending_event_index];
+    if (choice_index >= event->choice_count) {
+        return;
     }
 
+    event_apply_choice(&event->choices[choice_index], world->people, world->player_id);
+    log_event(world, world->player_id, UINT32_MAX, event->event_id, (uint8_t)choice_index);
+
     world->player_has_pending_choice = false;
-    world->player_choice_option_count = 0;
 }
 
 void world_skip_player_choice(WorldState* world) {
     world->player_has_pending_choice = false;
-    world->player_choice_option_count = 0;
 }

@@ -9,14 +9,57 @@
  * built from the same struct definition), not on any sim implementation
  * code.
  *
- * DSL format (line-based, deliberately simple): a series of
+ * DSL format (line-based, deliberately simple -- see src/data/events.def
+ * for real examples):
  *
  *   event
- *     key value
- *     key value ...
+ *     id 4
+ *     name "Cheated on partner"
+ *     min_age 18
+ *     max_age 255
+ *     weight 8
+ *     required_trait married
+ *     forbidden_trait loyal
+ *     trait_delta loyalty -20
+ *     requires_partner true
+ *     partner_source any_population
+ *     partner_exclude_spouse true
+ *     partner_min_age 18
+ *     partner_max_age 255
+ *     partner_trait_delta libido 5
+ *     sets_relation_status affair
+ *     relation_delta friendship 5
+ *     relation_delta romance 10
+ *     relation_delta lust 40
  *   end
  *
- * blocks. Unknown keywords or malformed lines abort compilation with a
+ * Events can optionally have choices instead of one fixed outcome -- the
+ * event still fires on its own via the normal weighted selection, but
+ * the player picks which of the choices happens (NPCs auto-pick one via
+ * their own weights). A `choice "<label>" <weight>` line starts a new
+ * choice; trait_delta/flag_set/flag_clear lines that follow apply to
+ * THAT choice instead of the event's top-level outcome, until the next
+ * `choice` line or `end`:
+ *
+ *   event
+ *     id 6
+ *     name "Received routine vaccination"
+ *     min_age 0
+ *     max_age 2
+ *     weight 90
+ *     choice "Stay calm" 50
+ *       trait_delta charisma 2
+ *     choice "Cried a lot" 30
+ *       trait_delta charisma -1
+ *     choice "Bit the nurse" 20
+ *       trait_delta strength 1
+ *       trait_delta charisma -3
+ *   end
+ *
+ * Choices and requires_partner cannot currently be combined on the same
+ * event (rejected at compile time) -- see sim/event.h.
+ *
+ * Unknown keywords or malformed lines abort compilation with a
  * line number and message -- silently ignoring bad content would be far
  * worse than failing the build. See src/data/events.def for real
  * examples covering every field this parser understands.
@@ -134,6 +177,7 @@ int main(int argc, char** argv) {
     bool in_event = false;
     EventDef current;
     memset(&current, 0, sizeof(current));
+    EventChoice* current_choice = NULL; /* non-NULL while inside a `choice ... ` sub-block */
 
     char line[MAX_LINE_LEN];
     int line_no = 0;
@@ -158,6 +202,7 @@ int main(int argc, char** argv) {
                 return 1;
             }
             memset(&current, 0, sizeof(current));
+            current_choice = NULL;
             in_event = true;
             continue;
         }
@@ -167,12 +212,18 @@ int main(int argc, char** argv) {
                 fprintf(stderr, "%s:%d: 'end' without matching 'event'\n", argv[1], line_no);
                 return 1;
             }
+            if (current.requires_partner && current.choice_count > 0) {
+                fprintf(stderr, "%s:%d: event '%s' combines requires_partner with choices -- "
+                        "not supported yet (see sim/event.h)\n", argv[1], line_no, current.name);
+                return 1;
+            }
             if (event_count >= MAX_EVENTS) {
                 fprintf(stderr, "error: too many events (max %d)\n", MAX_EVENTS);
                 return 1;
             }
             events[event_count++] = current;
             in_event = false;
+            current_choice = NULL;
             continue;
         }
 
@@ -193,6 +244,16 @@ int main(int argc, char** argv) {
             current.max_age = (uint8_t)atoi(tokens[1]);
         } else if (strcmp(key, "weight") == 0 && n >= 2) {
             current.weight_base = (uint16_t)atoi(tokens[1]);
+        } else if (strcmp(key, "choice") == 0 && n >= 3) {
+            if (current.choice_count >= MAX_EVENT_CHOICES) {
+                fprintf(stderr, "%s:%d: too many choices (max %d)\n", argv[1], line_no, MAX_EVENT_CHOICES);
+                return 1;
+            }
+            current_choice = &current.choices[current.choice_count];
+            memset(current_choice, 0, sizeof(*current_choice));
+            strncpy(current_choice->label, tokens[1], EVENT_NAME_MAX_LEN - 1);
+            current_choice->weight = (uint16_t)atoi(tokens[2]);
+            current.choice_count++;
         } else if (strcmp(key, "required_trait") == 0 && n >= 2) {
             uint32_t bit = flag_bit_from_name(tokens[1]);
             if (bit == 0) {
@@ -213,11 +274,23 @@ int main(int argc, char** argv) {
                 fprintf(stderr, "%s:%d: unknown trait '%s'\n", argv[1], line_no, tokens[1]);
                 return 1;
             }
-            current.trait_deltas[idx] = (int8_t)atoi(tokens[2]);
+            if (current_choice != NULL) {
+                current_choice->trait_deltas[idx] = (int8_t)atoi(tokens[2]);
+            } else {
+                current.trait_deltas[idx] = (int8_t)atoi(tokens[2]);
+            }
         } else if (strcmp(key, "flag_set") == 0 && n >= 2) {
-            current.flag_set |= flag_bit_from_name(tokens[1]);
+            if (current_choice != NULL) {
+                current_choice->flag_set |= flag_bit_from_name(tokens[1]);
+            } else {
+                current.flag_set |= flag_bit_from_name(tokens[1]);
+            }
         } else if (strcmp(key, "flag_clear") == 0 && n >= 2) {
-            current.flag_clear |= flag_bit_from_name(tokens[1]);
+            if (current_choice != NULL) {
+                current_choice->flag_clear |= flag_bit_from_name(tokens[1]);
+            } else {
+                current.flag_clear |= flag_bit_from_name(tokens[1]);
+            }
         } else if (strcmp(key, "requires_partner") == 0 && n >= 2) {
             current.requires_partner = parse_bool(tokens[1]) ? 1 : 0;
         } else if (strcmp(key, "partner_source") == 0 && n >= 2) {

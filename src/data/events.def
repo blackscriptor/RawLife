@@ -30,6 +30,20 @@
 #                                          line both mean "don't change it")
 #   relation_delta friendship|romance|lust <int>  (repeatable)
 #
+#   choice "<label>" <weight>       starts a reaction to this event -- the
+#                                    event fires on its own (weighted
+#                                    selection, same as any event), and
+#                                    IF it has choices, the player picks
+#                                    which reaction happens (NPCs pick via
+#                                    weight, same mechanism as event
+#                                    selection). trait_delta/flag_set/
+#                                    flag_clear lines after a `choice`
+#                                    line apply to THAT choice, not the
+#                                    event, until the next `choice` or
+#                                    `end`. Cannot be combined with
+#                                    requires_partner (rejected at
+#                                    compile time) -- see sim/event.h.
+#
 # Known trait names: loyalty, charisma, strength, beauty, intelligence, libido
 # Known flag names: loyal, criminal_record, wanted, married, employed
 # Known status names: none, acquaintance, friend, best_friend, rival, enemy,
@@ -108,10 +122,17 @@ end
 
 event
   id 6
-  name "Received routine vaccination"
+  name "Mum takes you for a vaccination"
   min_age 0
   max_age 2
   weight 90
+  choice "Stay calm" 50
+    trait_delta charisma 2
+  choice "Throw a tantrum" 30
+    trait_delta charisma -1
+  choice "Bite the nurse" 20
+    trait_delta strength 1
+    trait_delta charisma -3
 end
 
 event

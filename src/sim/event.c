@@ -49,6 +49,10 @@ void event_apply_partner(const EventDef* event, PersonPool* pool, uint32_t partn
     apply_deltas(pool, partner_id, event->partner_trait_deltas, event->partner_flag_set, event->partner_flag_clear);
 }
 
+void event_apply_choice(const EventChoice* choice, PersonPool* pool, uint32_t person_id) {
+    apply_deltas(pool, person_id, choice->trait_deltas, choice->flag_set, choice->flag_clear);
+}
+
 /*
  * Placeholder content. Real event catalogs get authored in the data/ DSL
  * and compiled to binary once src/tools/event_compiler exists (roadmap
