@@ -98,7 +98,7 @@ docs/
 - [x] Direct2D rendering + basic UI (text-only, spacebar advances a year)
 - [x] Player-centric model (one person born at age 0, two parents, distinguished in UI)
 - [ ] First playable content pass
-  - [ ] Character creation screen (name entry at minimum)
+  - [x] Character creation screen (name entry via keyboard, ENTER to begin)
   - [x] Player choices during events -- the event fires on its own (same weighted
         selection as NPCs use), and if it has choices, the player picks the REACTION
         (e.g. vaccination happens; stay calm / cry / bite the nurse), not which event

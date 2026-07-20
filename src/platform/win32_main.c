@@ -9,6 +9,7 @@
 
 #include <windows.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "render/renderer.h"
 #include "save/save.h"
@@ -203,13 +204,18 @@ static void sim_smoke_test(void) {
  *
  * This is the first player-centric pass: one person (player_id) is *the*
  * character the game is about, born at age 0 this run, with two parents
- * who exist in the world but aren't the focus. Previously the window
- * showed six NPCs with equal weight, which isn't what a BitLife-style
- * game actually is -- there's a "you," and everyone else orbits them.
- * No character creation UI yet (name is fixed) and no player choices
- * yet (events still resolve automatically for the player exactly like
- * any NPC) -- both are natural next steps once this foundation is in.
+ * who exist in the world but aren't the focus. There's now a real
+ * character creation screen (name entry) before the world starts --
+ * player_id/mother_id/father_id are UINT32_MAX until the name is
+ * confirmed and begin_game() spawns everyone.
  * --------------------------------------------------------------------- */
+
+typedef enum {
+    SCREEN_CHARACTER_CREATION,
+    SCREEN_GAME,
+} AppScreen;
+
+#define NAME_BUFFER_MAX 31 /* leaves room for the NUL, matches PersonCold's MAX_NAME_LEN - 1 */
 
 typedef struct {
     Arena arena;
@@ -220,6 +226,9 @@ typedef struct {
     uint32_t mother_id;
     uint32_t father_id;
     Renderer* renderer;
+    AppScreen screen;
+    wchar_t name_buffer[NAME_BUFFER_MAX + 1];
+    uint32_t name_length;
 } AppState;
 
 static const EventDef* find_event_by_id(const EventDef* events, uint32_t event_count, uint16_t event_id) {
@@ -231,7 +240,44 @@ static const EventDef* find_event_by_id(const EventDef* events, uint32_t event_c
     return NULL;
 }
 
+static void render_character_creation(AppState* app) {
+    RenderColor bg = { 0.08f, 0.08f, 0.11f, 1.0f };
+    RenderColor text_color = { 0.92f, 0.92f, 0.92f, 1.0f };
+    RenderColor input_color = { 1.0f, 0.85f, 0.35f, 1.0f };
+    RenderColor hint_color = { 0.6f, 0.6f, 0.6f, 1.0f };
+
+    renderer_begin_frame(app->renderer, bg);
+
+    float y = 20.0f;
+    const float line_height = 26.0f;
+
+    renderer_draw_text(app->renderer, 20.0f, y, 700.0f, line_height, L"RawLife", text_color);
+    y += line_height * 2.0f;
+
+    renderer_draw_text(app->renderer, 20.0f, y, 700.0f, line_height, L"What's your name?", text_color);
+    y += line_height * 1.5f;
+
+    /* Trailing underscore stands in for a text cursor -- no blink timer
+     * yet, just a static marker showing where typing lands. */
+    wchar_t input_line[NAME_BUFFER_MAX + 2];
+    wsprintfW(input_line, L"%s_", app->name_buffer);
+    renderer_draw_text(app->renderer, 20.0f, y, 700.0f, line_height, input_line, input_color);
+    y += line_height * 2.0f;
+
+    renderer_draw_text(app->renderer, 20.0f, y, 700.0f, line_height,
+                        L"(type your name, press ENTER to begin)", hint_color);
+
+    if (!renderer_end_frame(app->renderer)) {
+        OutputDebugStringA("RawLife: renderer device lost, recreation not yet implemented\n");
+    }
+}
+
 static void app_render_frame(AppState* app) {
+    if (app->screen == SCREEN_CHARACTER_CREATION) {
+        render_character_creation(app);
+        return;
+    }
+
     RenderColor bg = { 0.08f, 0.08f, 0.11f, 1.0f };
     RenderColor text_color = { 0.92f, 0.92f, 0.92f, 1.0f };
     RenderColor player_color = { 1.0f, 0.85f, 0.35f, 1.0f };
@@ -324,6 +370,44 @@ static void app_render_frame(AppState* app) {
     }
 }
 
+/*
+ * Spawns the player (using whatever name was entered on the character
+ * creation screen) plus two parents, sets up the starting family
+ * relationships, loads the event table, and switches to SCREEN_GAME.
+ * Called once, when the player confirms their name with Enter.
+ */
+static void begin_game(AppState* app) {
+    char player_name[128];
+    int converted = WideCharToMultiByte(CP_UTF8, 0, app->name_buffer, -1,
+                                         player_name, sizeof(player_name), NULL, NULL);
+    if (converted <= 0) {
+        strcpy(player_name, "Player"); /* conversion failed -- fall back rather than spawn with garbage */
+    }
+
+    /* Current year is 2026, so a person born at age 0 this run has that
+     * birth year. */
+    app->player_id = person_spawn(app->world->people, player_name, SEX_MALE, 2026);
+    app->mother_id = person_spawn(app->world->people, "Mary", SEX_FEMALE, 1996);
+    app->father_id = person_spawn(app->world->people, "Robert", SEX_MALE, 1994);
+
+    app->world->people->hot.age[app->player_id] = 0;
+    app->world->people->hot.age[app->mother_id] = 30;
+    app->world->people->hot.age[app->father_id] = 32;
+    app->world->people->hot.trait_flags[app->mother_id] |= TRAIT_FLAG_MARRIED;
+    app->world->people->hot.trait_flags[app->father_id] |= TRAIT_FLAG_MARRIED;
+
+    relation_add(app->world->relations, app->player_id, app->mother_id,
+                 REL_CATEGORY_FAMILY_PARENT_CHILD, REL_STATUS_NONE, 0, 0, 0);
+    relation_add(app->world->relations, app->player_id, app->father_id,
+                 REL_CATEGORY_FAMILY_PARENT_CHILD, REL_STATUS_NONE, 0, 0, 0);
+    relation_add(app->world->relations, app->mother_id, app->father_id,
+                 REL_CATEGORY_NONE, REL_STATUS_SPOUSE, 180, 200, 150);
+
+    world_set_player(app->world, app->player_id);
+
+    app->screen = SCREEN_GAME;
+}
+
 static LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     AppState* app = (AppState*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
 
@@ -347,24 +431,52 @@ static LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
             return 0;
         }
 
-        case WM_KEYDOWN:
-            if (app != NULL) {
-                if (app->world->player_has_pending_choice) {
-                    if (wparam >= '1' && wparam <= '9') {
-                        uint32_t choice_index = (uint32_t)(wparam - '1');
-                        const EventDef* pending_event = &app->events[app->world->player_pending_event_index];
-                        if (choice_index < pending_event->choice_count) {
-                            world_apply_player_choice(app->world, app->events, app->event_count, choice_index);
-                            InvalidateRect(hwnd, NULL, FALSE);
-                        }
-                    } else if (wparam == 'S') {
-                        world_skip_player_choice(app->world);
-                        InvalidateRect(hwnd, NULL, FALSE);
-                    }
-                } else if (wparam == VK_SPACE) {
-                    world_tick_year(app->world, app->events, app->event_count);
+        case WM_CHAR:
+            if (app != NULL && app->screen == SCREEN_CHARACTER_CREATION) {
+                /* Printable characters only -- this excludes backspace (0x08),
+                 * enter (0x0D), and other control chars, all handled via
+                 * WM_KEYDOWN instead for clarity. */
+                if (wparam >= 0x20 && wparam < 0x7F && app->name_length < NAME_BUFFER_MAX) {
+                    app->name_buffer[app->name_length++] = (wchar_t)wparam;
+                    app->name_buffer[app->name_length] = L'\0';
                     InvalidateRect(hwnd, NULL, FALSE);
                 }
+            }
+            return 0;
+
+        case WM_KEYDOWN:
+            if (app == NULL) {
+                return 0;
+            }
+
+            if (app->screen == SCREEN_CHARACTER_CREATION) {
+                if (wparam == VK_BACK && app->name_length > 0) {
+                    app->name_length--;
+                    app->name_buffer[app->name_length] = L'\0';
+                    InvalidateRect(hwnd, NULL, FALSE);
+                } else if (wparam == VK_RETURN && app->name_length > 0) {
+                    begin_game(app);
+                    InvalidateRect(hwnd, NULL, FALSE);
+                }
+                return 0;
+            }
+
+            /* SCREEN_GAME */
+            if (app->world->player_has_pending_choice) {
+                if (wparam >= '1' && wparam <= '9') {
+                    uint32_t choice_index = (uint32_t)(wparam - '1');
+                    const EventDef* pending_event = &app->events[app->world->player_pending_event_index];
+                    if (choice_index < pending_event->choice_count) {
+                        world_apply_player_choice(app->world, app->events, app->event_count, choice_index);
+                        InvalidateRect(hwnd, NULL, FALSE);
+                    }
+                } else if (wparam == 'S') {
+                    world_skip_player_choice(app->world);
+                    InvalidateRect(hwnd, NULL, FALSE);
+                }
+            } else if (wparam == VK_SPACE) {
+                world_tick_year(app->world, app->events, app->event_count);
+                InvalidateRect(hwnd, NULL, FALSE);
             }
             return 0;
 
@@ -400,32 +512,18 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         return 1;
     }
 
-    /* The player is born this run, at age 0 -- current year is 2026, so
-     * their birth year is set accordingly. No character creation UI yet,
-     * so the name is fixed; that's a natural next step once this
-     * player-centric foundation is in. */
-    app.player_id = person_spawn(app.world->people, "Alex", SEX_MALE, 2026);
-    app.mother_id = person_spawn(app.world->people, "Mary", SEX_FEMALE, 1996);
-    app.father_id = person_spawn(app.world->people, "Robert", SEX_MALE, 1994);
-
-    app.world->people->hot.age[app.player_id] = 0;
-    app.world->people->hot.age[app.mother_id] = 30;
-    app.world->people->hot.age[app.father_id] = 32;
-    app.world->people->hot.trait_flags[app.mother_id] |= TRAIT_FLAG_MARRIED;
-    app.world->people->hot.trait_flags[app.father_id] |= TRAIT_FLAG_MARRIED;
-
-    relation_add(app.world->relations, app.player_id, app.mother_id,
-                 REL_CATEGORY_FAMILY_PARENT_CHILD, REL_STATUS_NONE, 0, 0, 0);
-    relation_add(app.world->relations, app.player_id, app.father_id,
-                 REL_CATEGORY_FAMILY_PARENT_CHILD, REL_STATUS_NONE, 0, 0, 0);
-    relation_add(app.world->relations, app.mother_id, app.father_id,
-                 REL_CATEGORY_NONE, REL_STATUS_SPOUSE, 180, 200, 150);
-
-    world_set_player(app.world, app.player_id);
-
     app.events = g_example_events;
     app.event_count = g_example_event_count;
     event_table_load(&app.arena, "build/events.bin", &app.events, &app.event_count);
+
+    /* Player/parents aren't spawned yet -- that happens in begin_game(),
+     * once a name is entered on the character creation screen. */
+    app.player_id = UINT32_MAX;
+    app.mother_id = UINT32_MAX;
+    app.father_id = UINT32_MAX;
+    app.screen = SCREEN_CHARACTER_CREATION;
+    app.name_buffer[0] = L'\0';
+    app.name_length = 0;
 
     app.renderer = NULL;
 
